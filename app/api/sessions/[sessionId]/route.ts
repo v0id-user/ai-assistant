@@ -1,5 +1,6 @@
+import { requireOwnerId } from "@/lib/identity";
 import { getFacts } from "@/lib/memory";
-import { getTurns } from "@/lib/sessions";
+import { getTurns, ownsSession } from "@/lib/sessions";
 
 export async function GET(
   _request: Request,
@@ -7,6 +8,11 @@ export async function GET(
 ) {
   const { sessionId } = await ctx.params;
   try {
+    const ownerId = await requireOwnerId();
+    // A session id is not a capability; the caller must own it.
+    if (!(await ownsSession(ownerId, sessionId))) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
     const [turns, facts] = await Promise.all([
       getTurns(sessionId),
       getFacts(sessionId),

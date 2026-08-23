@@ -17,8 +17,10 @@ weather when you ask.
 - Deployed and publicly reachable
 
 **Out (and why):**
-- No authentication or multi user support. Single demo user, session scoped
-  identity is enough for the floor.
+- No authentication or multi user support. Identity is an httpOnly cookie set
+  server side, which scopes sessions, facts and traces to one browser. That is
+  not auth and does not survive clearing cookies; it exists because the demo is
+  a public URL and the original single-demo-user assumption did not hold.
 - No mobile specific UI. Desktop browser only, keeps the surface small.
 - No error recovery beyond basic failure states. Out of scope for a demo.
 - No self hosted vector store. Using Upstash so the storage question does not
@@ -99,6 +101,11 @@ above a similarity threshold, and on a hit return the stored answer and its
 already synthesised audio. On a miss, run the normal path and write the result
 back.
 
+**The cache is scoped per session,** for the same reason everything else now
+is. Answers are conditioned on that session's remembered facts, so a global
+cache could serve one user's personal details to another on a paraphrase
+match. Per session scoping lowers the hit rate and is the right trade.
+
 **Next steps with more time:**
 - Determine the minimum viable similarity threshold empirically. Too loose
   serves wrong answers from near misses, too tight makes the cache useless.
@@ -111,7 +118,9 @@ back.
 
 ## 7. Risks and open questions
 
-- No auth means the deployed demo is open to spam and abuse.
+- No auth means the deployed demo is open to spam and abuse. Cookie scoping
+  stops one visitor reading another's transcripts and remembered facts, but a
+  stolen or copied cookie is still full access to that browser's data.
 - A similarity threshold that is too loose could serve a confidently wrong
   cached answer.
 - Free tier rate limits on the LLM and TTS providers.

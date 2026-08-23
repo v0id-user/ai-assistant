@@ -51,22 +51,6 @@ function extensionFor(mimeType: string): string {
 // Reads the browser environment rather than React state, and never changes.
 const neverChanges = () => () => {};
 
-// One id per browser, persisted so memory survives a reload.
-function useSessionId() {
-  return useSyncExternalStore(
-    neverChanges,
-    () => {
-      let id = localStorage.getItem("sarjy:sessionId");
-      if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem("sarjy:sessionId", id);
-      }
-      return id;
-    },
-    () => "",
-  );
-}
-
 function useRecordingSupported() {
   return useSyncExternalStore(
     neverChanges,
@@ -78,12 +62,11 @@ function useRecordingSupported() {
 type SessionSummary = { sessionId: string; at: number; preview: string };
 
 export default function Home() {
-  const storedId = useSessionId();
   const supported = useRecordingSupported();
 
-  // A new or loaded session overrides whatever localStorage held.
-  const [override, setOverride] = useState<string | null>(null);
-  const sessionId = override ?? storedId;
+  // The server decides which session this browser is in, via an httpOnly
+  // cookie. The client never holds or sends a session id of its own.
+  const [sessionId, setSessionId] = useState("");
 
   const [recording, setRecording] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -104,30 +87,41 @@ export default function Home() {
     setSessions(sessions);
   }, []);
 
-  const loadSession = useCallback(async (id: string) => {
-    setOverride(id);
-    localStorage.setItem("sarjy:sessionId", id);
-    const res = await fetch(`/api/sessions/${id}`);
-    if (!res.ok) return;
-    const { turns, facts } = await res.json();
-    setTurns(turns);
-    setFacts(facts);
-    // Replay the stored turns as LLM history so the conversation can continue.
-    historyRef.current = turns.map((t: Turn) => ({
-      role: t.role,
-      content: t.text,
-    }));
-  }, []);
+  // Both switching and starting a session are server decisions; the response
+  // says which session we ended up in.
+  const applySession = useCallback(
+    (data: { sessionId: string; turns: Turn[]; facts: string[] }) => {
+      setSessionId(data.sessionId);
+      setTurns(data.turns);
+      setFacts(data.facts);
+      setStatus("");
+      historyRef.current = data.turns.map((t) => ({
+        role: t.role,
+        content: t.text,
+      }));
+    },
+    [],
+  );
 
-  const newSession = () => {
-    const id = crypto.randomUUID();
-    localStorage.setItem("sarjy:sessionId", id);
-    setOverride(id);
-    setTurns([]);
-    setFacts([]);
-    setStatus("");
-    historyRef.current = [];
-  };
+  const loadSession = useCallback(
+    async (id: string) => {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      if (!res.ok) return;
+      applySession(await res.json());
+    },
+    [applySession],
+  );
+
+  const newSession = useCallback(async () => {
+    const res = await fetch("/api/session", { method: "POST" });
+    if (!res.ok) return;
+    applySession(await res.json());
+    void loadSessions();
+  }, [applySession, loadSessions]);
 
   // Populate the panels on load. setState happens in the async callback, not
   // synchronously in the effect body.
@@ -138,11 +132,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId) return;
-    void fetch(`/api/sessions/${sessionId}`)
+    void fetch("/api/session")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setFacts(d.facts));
-  }, [sessionId]);
+      .then((d) => {
+        if (!d) return;
+        setSessionId(d.sessionId);
+        setTurns(d.turns);
+        setFacts(d.facts);
+        historyRef.current = d.turns.map((t: Turn) => ({
+          role: t.role,
+          content: t.text,
+        }));
+      });
+  }, []);
 
   const failure = async (res: Response, label: string) => {
     const body = await res.json().catch(() => null);
@@ -172,11 +174,7 @@ export default function Home() {
       const chatRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          sessionId,
-          history: historyRef.current,
-        }),
+        body: JSON.stringify({ transcript, history: historyRef.current }),
       });
       if (!chatRes.ok) throw await failure(chatRes, "Chat");
       const { text, messages, timings: chatTimings } = await chatRes.json();
@@ -228,12 +226,12 @@ export default function Home() {
       // Bookkeeping is written after the response, so re-read once it lands.
       setTimeout(() => {
         void loadSessions();
-        void fetch(`/api/sessions/${sessionId}`)
+        void fetch("/api/session")
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => d && setFacts(d.facts));
       }, 400);
     },
-    [sessionId, loadSessions],
+    [loadSessions],
   );
 
   const start = async () => {
@@ -325,7 +323,7 @@ export default function Home() {
             Facts ({facts.length})
           </button>
           <button
-            onClick={newSession}
+            onClick={() => void newSession()}
             className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
           >
             New session

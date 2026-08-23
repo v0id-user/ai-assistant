@@ -1,3 +1,5 @@
+import { getOwnerId } from "@/lib/identity";
+import { getCurrentSessionId } from "@/lib/sessions";
 import { getTraces, type Trace } from "@/lib/traces";
 
 // Reads Redis on every request; nothing here should be prerendered.
@@ -28,7 +30,12 @@ export default async function Traces() {
   let error = "";
 
   try {
-    traces = await getTraces();
+    // Server Components cannot set cookies, so a browser that has not made a
+    // request yet simply has nothing to show.
+    const ownerId = await getOwnerId();
+    if (ownerId) {
+      traces = await getTraces(await getCurrentSessionId(ownerId));
+    }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
@@ -39,7 +46,7 @@ export default async function Traces() {
         <div>
           <h1 className="text-xl font-semibold">Traces</h1>
           <p className="text-sm text-muted">
-            Last {traces.length} turns, newest first.
+            Last {traces.length} turns of your current session, newest first.
           </p>
         </div>
         <a
@@ -56,7 +63,7 @@ export default async function Traces() {
 
       {!error && traces.length === 0 && (
         <p className="text-sm text-muted">
-          No traces yet. Have a conversation, then refresh.
+          No traces for this session yet. Have a conversation, then refresh.
         </p>
       )}
 

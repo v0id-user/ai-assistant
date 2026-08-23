@@ -9,7 +9,8 @@ import { getFacts, saveFact } from "@/lib/memory";
 import { getWeather } from "@/lib/weather";
 import { createTimer } from "@/lib/timing";
 import { saveTrace } from "@/lib/traces";
-import { recordTurns } from "@/lib/sessions";
+import { getCurrentSessionId, recordTurns } from "@/lib/sessions";
+import { requireOwnerId } from "@/lib/identity";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -92,17 +93,18 @@ async function runTool(
 export async function POST(request: Request) {
   const timer = createTimer("chat");
 
-  const { transcript, sessionId, history = [] } = await request.json();
+  const { transcript, history = [] } = await request.json();
 
-  if (!transcript || !sessionId) {
-    return Response.json(
-      { error: "transcript and sessionId are required" },
-      { status: 400 },
-    );
+  if (!transcript) {
+    return Response.json({ error: "transcript is required" }, { status: 400 });
   }
 
+  // Identity comes from the cookie, never from the body.
+  const ownerId = await requireOwnerId();
+  const sessionId = await getCurrentSessionId(ownerId);
+
   try {
-    return await respond(transcript, sessionId, history, timer);
+    return await respond(transcript, ownerId, sessionId, history, timer);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[chat] failed:", message);
@@ -112,6 +114,7 @@ export async function POST(request: Request) {
 
 async function respond(
   transcript: string,
+  ownerId: string,
   sessionId: string,
   history: unknown[],
   timer: ReturnType<typeof createTimer>,
@@ -195,6 +198,7 @@ async function respond(
           timings,
         }),
         recordTurns(
+          ownerId,
           sessionId,
           [
             { role: "user", text: transcript },

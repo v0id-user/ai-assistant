@@ -3,7 +3,7 @@
 
 import { redis } from "@/lib/redis";
 
-const KEY = "sarjy:traces";
+const traceKey = (sessionId: string) => `sarjy:traces:${sessionId}`;
 const MAX_TRACES = 50;
 const TTL_SECONDS = 60 * 60 * 24; // a day is plenty for a demo aid
 
@@ -17,14 +17,19 @@ export type Trace = {
 
 export async function saveTrace(trace: Trace): Promise<void> {
   const r = redis();
-  await r.lpush(KEY, JSON.stringify(trace));
-  await r.ltrim(KEY, 0, MAX_TRACES - 1);
-  await r.expire(KEY, TTL_SECONDS);
+  const key = traceKey(trace.sessionId);
+  await r.lpush(key, JSON.stringify(trace));
+  await r.ltrim(key, 0, MAX_TRACES - 1);
+  await r.expire(key, TTL_SECONDS);
 }
 
-export async function getTraces(): Promise<Trace[]> {
+export async function getTraces(sessionId: string): Promise<Trace[]> {
   // The SDK parses JSON strings back into objects on read, so accept either.
-  const raw = await redis().lrange<Trace | string>(KEY, 0, MAX_TRACES - 1);
+  const raw = await redis().lrange<Trace | string>(
+    traceKey(sessionId),
+    0,
+    MAX_TRACES - 1,
+  );
   return raw.map((entry) =>
     typeof entry === "string" ? (JSON.parse(entry) as Trace) : entry,
   );
