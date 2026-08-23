@@ -12,7 +12,7 @@ weather when you ask.
 - Voice in, voice out
 - Memory across sessions (facts the user states about themselves)
 - Conversation history within a session
-- Streaming STT
+- Speech to text on every desktop browser
 - One external API (weather)
 - Deployed and publicly reachable
 
@@ -36,10 +36,36 @@ weather when you ask.
 
 | Decision | Choice | Why | Alternative rejected |
 |---|---|---|---|
-| STT | Browser Web Speech API | Zero setup, brief says audio plumbing is not being evaluated | Whisper on Groq, adds latency to the path |
+| STT | Whisper on Groq (`whisper-large-v3`) | Works in every browser; Web Speech does not | Browser Web Speech API, unusable in Brave and Firefox |
 | LLM | Groq | Fastest time to first token, which is what the deep dive is about | OpenAI, slower first token |
 | TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
+
+### Amendment: STT moved off the Web Speech API
+
+Originally this was the browser Web Speech API, chosen for zero setup. First
+real test failed: Brave ships `webkitSpeechRecognition` but disables the
+backend, so it throws `network` at runtime. Google licenses its speech service
+to Chrome only, and Brave, Firefox and Chromium builds get nothing. The
+constructor still exists, so there is no way to feature detect it, and the
+unsupported-browser banner cannot fire. This is the risk section 7 already
+listed as "browser STT support varies across browsers".
+
+Two consequences:
+
+- **"Streaming STT" is dropped from section 2.** Groq transcription is batch
+  only. This was verified at the type level: `@ai-sdk/groq` exposes
+  `TranscriptionModelV4`, and the AI SDK's `streamTranscribe` has no Groq
+  implementation. No layer recovers it, so there is no live partial transcript.
+- **Roughly 400ms of serial latency is added** to every turn. Web Speech
+  transcribed while the user spoke and cost nothing; Whisper runs after they
+  stop. The trade was made knowingly: a demo that only works in one browser is
+  worth less than 400ms.
+
+`whisper-large-v3` over `-turbo` because at 2 to 6 second utterances the two
+are indistinguishable on latency, measured, so the lower word error rate
+(10.3% against 12%) decides it. Transcripts feed the memory tool, where a
+misheard name persists for 30 days.
 
 ## 4. Memory
 

@@ -8,10 +8,12 @@ semantic cache is deliberately not built.
 
 ## How it works
 
-    mic (Web Speech API) -> /api/chat -> /api/tts -> <audio>
+    mic (MediaRecorder) -> /api/stt -> /api/chat -> /api/tts -> <audio>
 
-- **STT** runs in the browser via the Web Speech API, with interim results
-  streamed into the UI as you speak.
+- **STT** records with `MediaRecorder` and posts the clip to `/api/stt`, which
+  transcribes it with Groq Whisper. The container is probed with
+  `isTypeSupported` (webm/opus, ogg/opus or mp4 depending on browser) and Groq
+  accepts all of them, so nothing is transcoded.
 - **`/api/chat`** takes `{ transcript, sessionId, history }`, loads that
   session's stored facts from Upstash, injects them into the system prompt, and
   calls Groq with two tools: `save_fact` and `get_weather`. Returns the reply
@@ -24,6 +26,7 @@ semantic cache is deliberately not built.
 | File | Does |
 |---|---|
 | `app/page.tsx` | Mic button, transcript, audio playback |
+| `app/api/stt/route.ts` | Audio to text |
 | `app/api/chat/route.ts` | Memory + LLM + tools |
 | `app/api/tts/route.ts` | Text to audio |
 | `lib/memory.ts` | Get/save facts by session id |
@@ -53,21 +56,22 @@ accepted on this account.)
 Single visual theme: a warm cream ground with a fine grain overlay. There is
 no light/dark switching by design.
 
-Use Chrome or Edge on desktop. The Web Speech API is not available everywhere,
-and the page says so if it is missing.
+Any current desktop browser works, including Brave, Firefox and Safari. STT
+runs server side precisely so it does not depend on browser speech support.
 
 ## Timing
 
 Every stage boundary is marked with `performance.now()` and the deltas are
 logged. Server-side, per request:
 
-    [chat] total=1918.4ms memory_load=+2.6ms llm_round_0=+478.9ms tools_round_0=+909.9ms llm_round_1=+527ms
-    [tts]  total=711.8ms tts_first_byte=+216.5ms tts_complete=+495.2ms
+    [stt]  total=310.5ms transcribe=+310.5ms
+    [chat] total=1278.3ms memory_load=+442ms llm_round_0=+836.2ms
+    [tts]  total=609.1ms tts_first_byte=+168.2ms tts_complete=+440.9ms
 
 Client-side, in the browser console, covering the full round trip through to
 playback start:
 
-    [client] llm=+1918.4ms tts=+812.0ms playback=+3.1ms total=2733.5ms
+    [client] stt=+310ms llm=+1278ms tts=+609ms playback=+…ms total=…ms
 
 `/api/chat` also returns its `timings` in the response body.
 
@@ -83,6 +87,10 @@ route handlers.
 - The TDD names **PlayAI** for TTS. Groq has since retired those models; the
   live TTS family is Orpheus, so this uses `canopylabs/orpheus-v1-english`.
   Override with `GROQ_TTS_MODEL` / `GROQ_TTS_VOICE`.
+- **STT moved off the browser Web Speech API to Groq Whisper.** Brave ships
+  `webkitSpeechRecognition` but disables the backend, and it cannot be feature
+  detected. Section 2's "Streaming STT" is dropped as a result: Groq
+  transcription is batch only. See the amendment in `docs/tdd.md`.
 - The LLM is `openai/gpt-oss-120b` (override with `GROQ_MODEL`). The TDD did
   not pin a model, and the Llama models the Groq docs recommend for tool use
   are not served on this account.

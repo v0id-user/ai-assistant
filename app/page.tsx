@@ -1,20 +1,36 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
-// Both of these read the browser environment rather than React state, which is
-// what useSyncExternalStore is for. Neither ever changes, so nothing subscribes.
+// Every browser records something different, and Groq accepts all of them, so
+// probe rather than assume. Safari below 18.4 has no webm and needs mp4;
+// Firefox has no mp4. Order is best-compressed first.
+const MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/mp4",
+];
+
+function pickMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  return MIME_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
+// Groq reads the container off the filename, so it has to match what we recorded.
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes("webm")) return "webm";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mp4")) return "mp4";
+  return "bin";
+}
+
+// Reads the browser environment rather than React state, and never changes.
 const neverChanges = () => () => {};
 
-// One id per browser session, persisted so memory survives a reload.
+// One id per browser, persisted so memory survives a reload.
 function useSessionId() {
   return useSyncExternalStore(
     neverChanges,
@@ -30,137 +46,137 @@ function useSessionId() {
   );
 }
 
-function useSpeechSupported() {
+function useRecordingSupported() {
   return useSyncExternalStore(
     neverChanges,
-    () => Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition),
+    () => Boolean(navigator.mediaDevices?.getUserMedia) && !!pickMimeType(),
     () => true,
   );
 }
 
 export default function Home() {
   const sessionId = useSessionId();
+  const supported = useRecordingSupported();
 
-  const [listening, setListening] = useState(false);
-  const [interim, setInterim] = useState("");
+  const [recording, setRecording] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState("");
-  const supported = useSpeechSupported();
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Server-shaped message log, replayed each turn for in-session history.
   const historyRef = useRef<unknown[]>([]);
 
+  const failure = async (res: Response, label: string) => {
+    const body = await res.json().catch(() => null);
+    return new Error(body?.error ?? `${label} failed: ${res.status}`);
+  };
+
   const respond = useCallback(
-    async (transcript: string) => {
-      const t0 = performance.now();
+    async (clip: Blob, mimeType: string, startedAt: number) => {
+      setStatus("Transcribing…");
+
+      const form = new FormData();
+      form.append("audio", clip, `speech.${extensionFor(mimeType)}`);
+
+      const sttRes = await fetch("/api/stt", { method: "POST", body: form });
+      if (!sttRes.ok) throw await failure(sttRes, "Transcription");
+      const { text: transcript } = await sttRes.json();
+      const tStt = performance.now();
+
+      if (!transcript) {
+        setStatus("Didn't catch that.");
+        return;
+      }
+
       setTurns((prev) => [...prev, { role: "user", text: transcript }]);
       setStatus("Thinking…");
 
-      const failure = async (res: Response, label: string) => {
-        const body = await res.json().catch(() => null);
-        return new Error(body?.error ?? `${label} failed: ${res.status}`);
-      };
+      const chatRes = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          sessionId,
+          history: historyRef.current,
+        }),
+      });
+      if (!chatRes.ok) throw await failure(chatRes, "Chat");
+      const { text, messages, timings } = await chatRes.json();
+      const tLlm = performance.now();
 
-      try {
-        const chatRes = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transcript,
-            sessionId,
-            history: historyRef.current,
-          }),
-        });
-        if (!chatRes.ok) throw await failure(chatRes, "Chat");
-        const { text, messages, timings } = await chatRes.json();
+      historyRef.current = messages;
+      setTurns((prev) => [...prev, { role: "assistant", text }]);
+      setStatus("Speaking…");
 
-        const tLlm = performance.now();
-        historyRef.current = messages;
-        setTurns((prev) => [...prev, { role: "assistant", text }]);
-        setStatus("Speaking…");
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
 
-        const ttsRes = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
+      const blob = await ttsRes.blob();
+      const tTts = performance.now();
 
-        const blob = await ttsRes.blob();
-        const tTts = performance.now();
+      const url = URL.createObjectURL(blob);
+      const audio = audioRef.current!;
+      audio.src = url;
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+      const tPlay = performance.now();
 
-        const url = URL.createObjectURL(blob);
-        const audio = audioRef.current!;
-        audio.src = url;
-        audio.onended = () => URL.revokeObjectURL(url);
-        await audio.play();
-        const tPlay = performance.now();
-
-        console.log(
-          `[client] llm=+${(tLlm - t0).toFixed(1)}ms ` +
-            `tts=+${(tTts - tLlm).toFixed(1)}ms ` +
-            `playback=+${(tPlay - tTts).toFixed(1)}ms ` +
-            `total=${(tPlay - t0).toFixed(1)}ms`,
-          timings,
-        );
-        setStatus("");
-      } catch (err) {
-        setStatus(err instanceof Error ? err.message : String(err));
-      }
+      console.log(
+        `[client] stt=+${(tStt - startedAt).toFixed(1)}ms ` +
+          `llm=+${(tLlm - tStt).toFixed(1)}ms ` +
+          `tts=+${(tTts - tLlm).toFixed(1)}ms ` +
+          `playback=+${(tPlay - tTts).toFixed(1)}ms ` +
+          `total=${(tPlay - startedAt).toFixed(1)}ms`,
+        timings,
+      );
+      setStatus("");
     },
     [sessionId],
   );
 
-  useEffect(() => {
-    const Recognition =
-      typeof window !== "undefined"
-        ? window.SpeechRecognition ?? window.webkitSpeechRecognition
-        : undefined;
+  const start = async () => {
+    setStatus("");
+    const mimeType = pickMimeType();
+    if (!mimeType) return;
 
-    if (!Recognition) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks: Blob[] = [];
 
-    const recognition = new Recognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let partial = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          setInterim("");
-          void respond(result[0].transcript.trim());
-        } else {
-          partial += result[0].transcript;
+      recorder.onstop = async () => {
+        // Release the mic as soon as we have the audio, so the browser stops
+        // showing the recording indicator while the request is in flight.
+        stream.getTracks().forEach((track) => track.stop());
+        const stoppedAt = performance.now();
+        try {
+          await respond(new Blob(chunks, { type: mimeType }), mimeType, stoppedAt);
+        } catch (err) {
+          setStatus(err instanceof Error ? err.message : String(err));
         }
-      }
-      setInterim(partial);
-    };
+      };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      setStatus(`Mic error: ${event.error}`);
-      setListening(false);
-    };
-    recognition.onend = () => setListening(false);
-
-    recognitionRef.current = recognition;
-    return () => recognition.abort();
-  }, [respond]);
-
-  const toggle = () => {
-    const recognition = recognitionRef.current;
-    if (!recognition) return;
-    if (listening) {
-      recognition.stop();
-    } else {
-      setStatus("");
-      setInterim("");
-      recognition.start();
-      setListening(true);
+      recorder.start();
+      recorderRef.current = recorder;
+      setRecording(true);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const stop = () => {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    setRecording(false);
   };
 
   return (
@@ -174,23 +190,21 @@ export default function Home() {
 
       {!supported && (
         <p className="rounded border border-sand bg-shell p-3 text-sm text-ink">
-          This browser has no Web Speech API. Use Chrome or Edge on desktop.
+          This browser cannot record audio. Use a current desktop browser.
         </p>
       )}
 
       <button
-        onClick={toggle}
+        onClick={recording ? stop : start}
         disabled={!supported || !sessionId}
         className={`self-start rounded-full px-6 py-3 text-cream transition disabled:opacity-40 ${
-          listening ? "bg-rust hover:bg-rust" : "bg-clay hover:bg-clay-dark"
+          recording ? "bg-rust hover:bg-rust" : "bg-clay hover:bg-clay-dark"
         }`}
       >
-        {listening ? "Stop" : "Talk"}
+        {recording ? "Stop" : "Talk"}
       </button>
 
-      <div className="min-h-6 text-sm text-muted">
-        {interim || status}
-      </div>
+      <div className="min-h-6 text-sm text-muted">{status}</div>
 
       <ol className="flex flex-col gap-3">
         {turns.map((turn, i) => (
