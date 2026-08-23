@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
@@ -69,18 +75,74 @@ function useRecordingSupported() {
   );
 }
 
+type SessionSummary = { sessionId: string; at: number; preview: string };
+
 export default function Home() {
-  const sessionId = useSessionId();
+  const storedId = useSessionId();
   const supported = useRecordingSupported();
+
+  // A new or loaded session overrides whatever localStorage held.
+  const [override, setOverride] = useState<string | null>(null);
+  const sessionId = override ?? storedId;
 
   const [recording, setRecording] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState("");
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [facts, setFacts] = useState<string[]>([]);
+  const [showFacts, setShowFacts] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Server-shaped message log, replayed each turn for in-session history.
   const historyRef = useRef<unknown[]>([]);
+
+  const loadSessions = useCallback(async () => {
+    const res = await fetch("/api/sessions");
+    if (!res.ok) return;
+    const { sessions } = await res.json();
+    setSessions(sessions);
+  }, []);
+
+  const loadSession = useCallback(async (id: string) => {
+    setOverride(id);
+    localStorage.setItem("sarjy:sessionId", id);
+    const res = await fetch(`/api/sessions/${id}`);
+    if (!res.ok) return;
+    const { turns, facts } = await res.json();
+    setTurns(turns);
+    setFacts(facts);
+    // Replay the stored turns as LLM history so the conversation can continue.
+    historyRef.current = turns.map((t: Turn) => ({
+      role: t.role,
+      content: t.text,
+    }));
+  }, []);
+
+  const newSession = () => {
+    const id = crypto.randomUUID();
+    localStorage.setItem("sarjy:sessionId", id);
+    setOverride(id);
+    setTurns([]);
+    setFacts([]);
+    setStatus("");
+    historyRef.current = [];
+  };
+
+  // Populate the panels on load. setState happens in the async callback, not
+  // synchronously in the effect body.
+  useEffect(() => {
+    void fetch("/api/sessions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setSessions(d.sessions));
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    void fetch(`/api/sessions/${sessionId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setFacts(d.facts));
+  }, [sessionId]);
 
   const failure = async (res: Response, label: string) => {
     const body = await res.json().catch(() => null);
@@ -162,8 +224,16 @@ export default function Home() {
         ].join(" "),
       );
       setStatus("");
+
+      // Bookkeeping is written after the response, so re-read once it lands.
+      setTimeout(() => {
+        void loadSessions();
+        void fetch(`/api/sessions/${sessionId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d && setFacts(d.facts));
+      }, 400);
     },
-    [sessionId],
+    [sessionId, loadSessions],
   );
 
   const start = async () => {
@@ -207,13 +277,79 @@ export default function Home() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
-      <header>
-        <h1 className="text-2xl font-semibold">Sarjy</h1>
-        <p className="text-sm text-muted">
-          Talk to it. It remembers, and it knows the weather.
-        </p>
+    <>
+      <aside className="fixed top-4 left-4 hidden w-56 rounded border border-sand bg-shell/70 p-3 text-sm xl:block">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="font-medium">Sessions</span>
+          <button
+            onClick={() => void loadSessions()}
+            className="text-xs text-muted hover:text-ink"
+          >
+            reload
+          </button>
+        </div>
+        {sessions.length === 0 ? (
+          <p className="text-xs text-muted">None yet.</p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {sessions.map((s) => (
+              <li key={s.sessionId}>
+                <button
+                  onClick={() => void loadSession(s.sessionId)}
+                  className={`w-full truncate rounded px-2 py-1 text-left text-xs hover:bg-sand ${
+                    s.sessionId === sessionId ? "bg-sand font-medium" : ""
+                  }`}
+                  title={s.preview}
+                >
+                  {s.preview}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+
+      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Sarjy</h1>
+          <p className="text-sm text-muted">
+            Talk to it. It remembers, and it knows the weather.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            onClick={() => setShowFacts((v) => !v)}
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
+          >
+            Facts ({facts.length})
+          </button>
+          <button
+            onClick={newSession}
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
+          >
+            New session
+          </button>
+        </div>
       </header>
+
+      {showFacts && (
+        <div className="rounded border border-sand bg-shell p-3 text-sm">
+          <p className="mb-1 font-medium">Remembered about you</p>
+          {facts.length === 0 ? (
+            <p className="text-muted">
+              Nothing yet. Tell Sarjy something about yourself.
+            </p>
+          ) : (
+            <ul className="list-inside list-disc">
+              {facts.map((fact) => (
+                <li key={fact}>{fact}</li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-muted">session {sessionId.slice(0, 8)}</p>
+        </div>
+      )}
 
       {!supported && (
         <p className="rounded border border-sand bg-shell p-3 text-sm text-ink">
@@ -248,7 +384,8 @@ export default function Home() {
         ))}
       </ol>
 
-      <audio ref={audioRef} hidden />
-    </main>
+        <audio ref={audioRef} hidden />
+      </main>
+    </>
   );
 }

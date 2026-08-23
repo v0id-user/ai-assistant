@@ -9,6 +9,7 @@ import { getFacts, saveFact } from "@/lib/memory";
 import { getWeather } from "@/lib/weather";
 import { createTimer } from "@/lib/timing";
 import { saveTrace } from "@/lib/traces";
+import { recordTurns } from "@/lib/sessions";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -183,17 +184,28 @@ async function respond(
   // after() runs once the response has been flushed to the client, so the
   // trace write costs the turn nothing.
   after(async () => {
+    const now = Date.now();
     try {
-      await saveTrace({
-        at: new Date().toISOString(),
-        sessionId,
-        transcript,
-        response: text,
-        timings,
-      });
+      await Promise.all([
+        saveTrace({
+          at: new Date(now).toISOString(),
+          sessionId,
+          transcript,
+          response: text,
+          timings,
+        }),
+        recordTurns(
+          sessionId,
+          [
+            { role: "user", text: transcript },
+            { role: "assistant", text },
+          ],
+          now,
+        ),
+      ]);
     } catch (err) {
-      // A debug aid must never take the turn down with it.
-      console.error("[trace] write failed:", err);
+      // Bookkeeping must never take the turn down with it.
+      console.error("[after] write failed:", err);
     }
   });
 
