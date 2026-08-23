@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import Groq from "groq-sdk";
 import type {
   ChatCompletionMessageParam,
@@ -7,6 +8,7 @@ import type {
 import { getFacts, saveFact } from "@/lib/memory";
 import { getWeather } from "@/lib/weather";
 import { createTimer } from "@/lib/timing";
+import { saveTrace } from "@/lib/traces";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -177,6 +179,23 @@ async function respond(
   }
 
   const timings = timer.done();
+
+  // after() runs once the response has been flushed to the client, so the
+  // trace write costs the turn nothing.
+  after(async () => {
+    try {
+      await saveTrace({
+        at: new Date().toISOString(),
+        sessionId,
+        transcript,
+        response: text,
+        timings,
+      });
+    } catch (err) {
+      // A debug aid must never take the turn down with it.
+      console.error("[trace] write failed:", err);
+    }
+  });
 
   return Response.json({
     text,

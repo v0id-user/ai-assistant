@@ -1,15 +1,7 @@
 // Facts the user stated about themselves, keyed by session id.
 // A Redis set per session: dedupes repeats for free, and reads are one round trip.
 
-import { Redis } from "@upstash/redis";
-
-// Constructed on first use, not at module load, so a build without Upstash
-// credentials present does not warn or fail.
-let client: Redis | null = null;
-function redis(): Redis {
-  if (!client) client = Redis.fromEnv();
-  return client;
-}
+import { redis } from "@/lib/redis";
 
 const FACT_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const MAX_FACTS = 50;
