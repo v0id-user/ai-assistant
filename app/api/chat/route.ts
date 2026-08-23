@@ -22,14 +22,16 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "save_fact",
       description:
-        "Save a durable fact the user stated about themselves, so it can be recalled in later sessions. Use for preferences, names, locations, and similar. Do not use for passing remarks or questions.",
+        "Save a durable fact the user stated about themselves, so it can be recalled in later sessions. Use for preferences, names, locations, and similar. Do not use for passing remarks or questions. Call once per distinct fact.",
       parameters: {
         type: "object",
         properties: {
           fact: {
             type: "string",
             description:
-              "The fact, written as a short third-person sentence, e.g. 'Lives in Riyadh'.",
+              "The fact as a short predicate with no pronouns and no subject, " +
+              "e.g. 'Lives in Riyadh' or 'Name is Fahad'. Never guess the " +
+              "user's gender.",
           },
         },
         required: ["fact"],
@@ -60,7 +62,8 @@ function systemPrompt(facts: string[]): string {
     "You are Sarjy, a voice assistant. Your replies are read aloud, so keep " +
     "them short and conversational: one or two sentences, no markdown, no " +
     "lists, no emoji. When the user states something durable about " +
-    "themselves, call save_fact. When asked about weather, call get_weather.";
+    "themselves, call save_fact. When asked about weather, call get_weather. " +
+    "After using tools, always reply to the user in words.";
 
   if (facts.length === 0) return base;
   return `${base}\n\nWhat you already know about this user:\n${facts
@@ -95,6 +98,21 @@ export async function POST(request: Request) {
     );
   }
 
+  try {
+    return await respond(transcript, sessionId, history, timer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[chat] failed:", message);
+    return Response.json({ error: message }, { status: 502 });
+  }
+}
+
+async function respond(
+  transcript: string,
+  sessionId: string,
+  history: unknown[],
+  timer: ReturnType<typeof createTimer>,
+) {
   const facts = await getFacts(sessionId);
   timer.mark("memory_load");
 
@@ -143,6 +161,19 @@ export async function POST(request: Request) {
       });
     }
     timer.mark(`tools_round_${round}`);
+  }
+
+  // The model can end a round with neither tool calls nor content, and it can
+  // run out of tool rounds. Either way the user would hear silence, so make one
+  // last call with tools off to force a spoken reply.
+  if (!text.trim()) {
+    const final = await groq.chat.completions.create({
+      model: MODEL,
+      messages,
+      tool_choice: "none",
+    });
+    text = final.choices[0].message.content?.trim() ?? "";
+    timer.mark("llm_final");
   }
 
   const timings = timer.done();

@@ -58,6 +58,11 @@ export default function Home() {
       setTurns((prev) => [...prev, { role: "user", text: transcript }]);
       setStatus("Thinking…");
 
+      const failure = async (res: Response, label: string) => {
+        const body = await res.json().catch(() => null);
+        return new Error(body?.error ?? `${label} failed: ${res.status}`);
+      };
+
       try {
         const chatRes = await fetch("/api/chat", {
           method: "POST",
@@ -68,7 +73,7 @@ export default function Home() {
             history: historyRef.current,
           }),
         });
-        if (!chatRes.ok) throw new Error(`Chat failed: ${chatRes.status}`);
+        if (!chatRes.ok) throw await failure(chatRes, "Chat");
         const { text, messages, timings } = await chatRes.json();
 
         const tLlm = performance.now();
@@ -81,7 +86,7 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),
         });
-        if (!ttsRes.ok) throw new Error(`TTS failed: ${ttsRes.status}`);
+        if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
 
         const blob = await ttsRes.blob();
         const tTts = performance.now();

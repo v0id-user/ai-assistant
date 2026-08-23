@@ -18,15 +18,21 @@ export async function POST(request: Request) {
     return Response.json({ error: "text is required" }, { status: 400 });
   }
 
-  const speech = await groq.audio.speech.create({
-    model: MODEL,
-    voice: VOICE,
-    input: text,
-    response_format: "wav",
-  });
-  timer.mark("tts_first_byte");
-
-  const audio = await speech.arrayBuffer();
+  let audio: ArrayBuffer;
+  try {
+    const speech = await groq.audio.speech.create({
+      model: MODEL,
+      voice: VOICE,
+      input: text,
+      response_format: "wav",
+    });
+    timer.mark("tts_first_byte");
+    audio = await speech.arrayBuffer();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[tts] failed:", message);
+    return Response.json({ error: message }, { status: 502 });
+  }
   timer.mark("tts_complete");
   timer.done();
 
