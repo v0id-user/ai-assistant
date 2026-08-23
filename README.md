@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sarjy
 
-## Getting Started
+A browser voice assistant. You talk to it, it answers out loud, it remembers
+what you told it in earlier sessions, and it can pull live weather.
 
-First, run the development server:
+Built to the scope in [`docs/tdd.md`](docs/tdd.md) section 2. The section 6
+semantic cache is deliberately not built.
+
+## How it works
+
+    mic (Web Speech API) -> /api/chat -> /api/tts -> <audio>
+
+- **STT** runs in the browser via the Web Speech API, with interim results
+  streamed into the UI as you speak.
+- **`/api/chat`** takes `{ transcript, sessionId, history }`, loads that
+  session's stored facts from Upstash, injects them into the system prompt, and
+  calls Groq with two tools: `save_fact` and `get_weather`. Returns the reply
+  text plus the message log, which the client replays on the next turn to keep
+  conversation history within the session.
+- **`/api/tts`** turns reply text into a wav via Groq TTS.
+- **Memory** is a Redis set per session id, so repeated facts dedupe and reads
+  are one round trip. 30 day TTL.
+
+| File | Does |
+|---|---|
+| `app/page.tsx` | Mic button, transcript, audio playback |
+| `app/api/chat/route.ts` | Memory + LLM + tools |
+| `app/api/tts/route.ts` | Text to audio |
+| `lib/memory.ts` | Get/save facts by session id |
+| `lib/weather.ts` | Open-Meteo fetch |
+| `lib/timing.ts` | Stage-boundary marks |
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Fill in `.env`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `GROQ_API_KEY` — from https://console.groq.com/keys
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — from
+  https://console.upstash.com
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Two things need doing once before it will talk:
 
-## Learn More
+1. **Accept the Groq TTS model terms.** The TTS route returns
+   `model_terms_required` until an org admin accepts them at
+   https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english
+2. **Create an Upstash Redis database** and paste both values above. Without
+   them `/api/chat` fails on the memory load.
 
-To learn more about Next.js, take a look at the following resources:
+Use Chrome or Edge on desktop. The Web Speech API is not available everywhere,
+and the page says so if it is missing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Timing
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Every stage boundary is marked with `performance.now()` and the deltas are
+logged. Server-side, per request:
 
-## Deploy on Vercel
+    [chat] total=1918.4ms memory_load=+2.6ms llm_round_0=+478.9ms tools_round_0=+909.9ms llm_round_1=+527ms
+    [tts]  total=812.0ms tts_first_byte=+790.1ms tts_complete=+21.9ms
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Client-side, in the browser console, covering the full round trip through to
+playback start:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+    [client] llm=+1918.4ms tts=+812.0ms playback=+3.1ms total=2733.5ms
+
+`/api/chat` also returns its `timings` in the response body.
+
+## Deploying to Vercel
+
+Push the repo, import it in Vercel, and set `GROQ_API_KEY`,
+`UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN` as environment
+variables. No other configuration is needed — both routes are standard Node
+route handlers.
+
+## Deviations from the TDD
+
+- The TDD names **PlayAI** for TTS. Groq has since retired those models; the
+  live TTS family is Orpheus, so this uses `canopylabs/orpheus-v1-english`.
+  Override with `GROQ_TTS_MODEL` / `GROQ_TTS_VOICE`.
+- The LLM is `openai/gpt-oss-120b` (override with `GROQ_MODEL`). The TDD did
+  not pin a model, and the Llama models the Groq docs recommend for tool use
+  are not served on this account.
