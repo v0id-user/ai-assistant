@@ -34,12 +34,14 @@ export async function POST(request: Request) {
     return Response.json({ error: message }, { status: 502 });
   }
   timer.mark("tts_complete");
-  timer.done();
+  const timings = timer.done();
 
   return new Response(audio, {
     headers: {
       "Content-Type": "audio/wav",
       "Content-Length": String(audio.byteLength),
+      // The body is audio, so the stage marks travel in a header.
+      "X-Timings": JSON.stringify(timings),
     },
   });
 }

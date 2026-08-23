@@ -4,6 +4,21 @@ import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
+type Timings = { totalMs: number; stages: { name: string; deltaMs: number }[] };
+
+// The routes already mark every stage boundary; this just picks them back out
+// so the client log can show them separately instead of one collapsed number.
+function stage(timings: Timings | undefined, prefix: string): number {
+  if (!timings) return 0;
+  return timings.stages
+    .filter((s) => s.name.startsWith(prefix))
+    .reduce((total, s) => total + s.deltaMs, 0);
+}
+
+function ms(value: number): string {
+  return `${value.toFixed(1)}ms`;
+}
+
 // Every browser records something different, and Groq accepts all of them, so
 // probe rather than assume. Safari below 18.4 has no webm and needs mp4;
 // Firefox has no mp4. Order is best-compressed first.
@@ -81,7 +96,7 @@ export default function Home() {
 
       const sttRes = await fetch("/api/stt", { method: "POST", body: form });
       if (!sttRes.ok) throw await failure(sttRes, "Transcription");
-      const { text: transcript } = await sttRes.json();
+      const { text: transcript, timings: sttTimings } = await sttRes.json();
       const tStt = performance.now();
 
       if (!transcript) {
@@ -102,8 +117,7 @@ export default function Home() {
         }),
       });
       if (!chatRes.ok) throw await failure(chatRes, "Chat");
-      const { text, messages, timings } = await chatRes.json();
-      const tLlm = performance.now();
+      const { text, messages, timings: chatTimings } = await chatRes.json();
 
       historyRef.current = messages;
       setTurns((prev) => [...prev, { role: "assistant", text }]);
@@ -116,6 +130,9 @@ export default function Home() {
       });
       if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
 
+      const ttsTimings: Timings | undefined = JSON.parse(
+        ttsRes.headers.get("X-Timings") ?? "null",
+      );
       const blob = await ttsRes.blob();
       const tTts = performance.now();
 
@@ -126,13 +143,23 @@ export default function Home() {
       await audio.play();
       const tPlay = performance.now();
 
+      // Upload and response overhead: whatever the round trip cost beyond the
+      // work the server actually reported doing.
+      const sttOverhead = tStt - startedAt - stage(sttTimings, "transcribe");
+
       console.log(
-        `[client] stt=+${(tStt - startedAt).toFixed(1)}ms ` +
-          `llm=+${(tLlm - tStt).toFixed(1)}ms ` +
-          `tts=+${(tTts - tLlm).toFixed(1)}ms ` +
-          `playback=+${(tPlay - tTts).toFixed(1)}ms ` +
-          `total=${(tPlay - startedAt).toFixed(1)}ms`,
-        timings,
+        [
+          "[client]",
+          `stt=+${ms(stage(sttTimings, "transcribe"))}`,
+          `upload=+${ms(sttOverhead)}`,
+          `memory_load=+${ms(stage(chatTimings, "memory_load"))}`,
+          `llm_complete=+${ms(stage(chatTimings, "llm_"))}`,
+          `tools=+${ms(stage(chatTimings, "tools_"))}`,
+          `tts_first_byte=+${ms(stage(ttsTimings, "tts_first_byte"))}`,
+          `tts_complete=+${ms(stage(ttsTimings, "tts_complete"))}`,
+          `playback=+${ms(tPlay - tTts)}`,
+          `total=${ms(tPlay - startedAt)}`,
+        ].join(" "),
       );
       setStatus("");
     },

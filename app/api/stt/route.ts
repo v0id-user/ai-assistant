@@ -29,9 +29,9 @@ export async function POST(request: Request) {
       response_format: "json",
     });
     timer.mark("transcribe");
-    timer.done();
+    const timings = timer.done();
 
-    return Response.json({ text: transcription.text.trim() });
+    return Response.json({ text: transcription.text.trim(), timings });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[stt] failed:", message);
