@@ -1,69 +1,208 @@
-import Image from "next/image";
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+
+type Turn = { role: "user" | "assistant"; text: string };
+
+// Both of these read the browser environment rather than React state, which is
+// what useSyncExternalStore is for. Neither ever changes, so nothing subscribes.
+const neverChanges = () => () => {};
+
+// One id per browser session, persisted so memory survives a reload.
+function useSessionId() {
+  return useSyncExternalStore(
+    neverChanges,
+    () => {
+      let id = localStorage.getItem("sarjy:sessionId");
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem("sarjy:sessionId", id);
+      }
+      return id;
+    },
+    () => "",
+  );
+}
+
+function useSpeechSupported() {
+  return useSyncExternalStore(
+    neverChanges,
+    () => Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition),
+    () => true,
+  );
+}
 
 export default function Home() {
+  const sessionId = useSessionId();
+
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [status, setStatus] = useState("");
+  const supported = useSpeechSupported();
+
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Server-shaped message log, replayed each turn for in-session history.
+  const historyRef = useRef<unknown[]>([]);
+
+  const respond = useCallback(
+    async (transcript: string) => {
+      const t0 = performance.now();
+      setTurns((prev) => [...prev, { role: "user", text: transcript }]);
+      setStatus("Thinking…");
+
+      try {
+        const chatRes = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript,
+            sessionId,
+            history: historyRef.current,
+          }),
+        });
+        if (!chatRes.ok) throw new Error(`Chat failed: ${chatRes.status}`);
+        const { text, messages, timings } = await chatRes.json();
+
+        const tLlm = performance.now();
+        historyRef.current = messages;
+        setTurns((prev) => [...prev, { role: "assistant", text }]);
+        setStatus("Speaking…");
+
+        const ttsRes = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!ttsRes.ok) throw new Error(`TTS failed: ${ttsRes.status}`);
+
+        const blob = await ttsRes.blob();
+        const tTts = performance.now();
+
+        const url = URL.createObjectURL(blob);
+        const audio = audioRef.current!;
+        audio.src = url;
+        audio.onended = () => URL.revokeObjectURL(url);
+        await audio.play();
+        const tPlay = performance.now();
+
+        console.log(
+          `[client] llm=+${(tLlm - t0).toFixed(1)}ms ` +
+            `tts=+${(tTts - tLlm).toFixed(1)}ms ` +
+            `playback=+${(tPlay - tTts).toFixed(1)}ms ` +
+            `total=${(tPlay - t0).toFixed(1)}ms`,
+          timings,
+        );
+        setStatus("");
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [sessionId],
+  );
+
+  useEffect(() => {
+    const Recognition =
+      typeof window !== "undefined"
+        ? window.SpeechRecognition ?? window.webkitSpeechRecognition
+        : undefined;
+
+    if (!Recognition) return;
+
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let partial = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          setInterim("");
+          void respond(result[0].transcript.trim());
+        } else {
+          partial += result[0].transcript;
+        }
+      }
+      setInterim(partial);
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      setStatus(`Mic error: ${event.error}`);
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    return () => recognition.abort();
+  }, [respond]);
+
+  const toggle = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+    if (listening) {
+      recognition.stop();
+    } else {
+      setStatus("");
+      setInterim("");
+      recognition.start();
+      setListening(true);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
+      <header>
+        <h1 className="text-2xl font-semibold">Sarjy</h1>
+        <p className="text-sm text-gray-500">
+          Talk to it. It remembers, and it knows the weather.
+        </p>
+      </header>
+
+      {!supported && (
+        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          This browser has no Web Speech API. Use Chrome or Edge on desktop.
+        </p>
+      )}
+
+      <button
+        onClick={toggle}
+        disabled={!supported || !sessionId}
+        className={`self-start rounded-full px-6 py-3 text-white transition disabled:opacity-40 ${
+          listening ? "bg-red-600 hover:bg-red-700" : "bg-black hover:bg-gray-800"
+        }`}
+      >
+        {listening ? "Stop" : "Talk"}
+      </button>
+
+      <div className="min-h-6 text-sm text-gray-500">
+        {interim || status}
+      </div>
+
+      <ol className="flex flex-col gap-3">
+        {turns.map((turn, i) => (
+          <li
+            key={i}
+            className={
+              turn.role === "user"
+                ? "self-end rounded-lg bg-gray-100 px-4 py-2"
+                : "self-start rounded-lg bg-blue-50 px-4 py-2"
+            }
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            {turn.text}
+          </li>
+        ))}
+      </ol>
+
+      <audio ref={audioRef} hidden />
+    </main>
   );
 }
