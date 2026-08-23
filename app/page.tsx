@@ -167,13 +167,13 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
       <header>
         <h1 className="text-2xl font-semibold">Sarjy</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted">
           Talk to it. It remembers, and it knows the weather.
         </p>
       </header>
 
       {!supported && (
-        <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+        <p className="rounded border border-sand bg-shell p-3 text-sm text-ink">
           This browser has no Web Speech API. Use Chrome or Edge on desktop.
         </p>
       )}
@@ -181,16 +181,14 @@ export default function Home() {
       <button
         onClick={toggle}
         disabled={!supported || !sessionId}
-        className={`self-start rounded-full px-6 py-3 text-white transition disabled:opacity-40 ${
-          listening
-            ? "bg-red-600 hover:bg-red-700"
-            : "bg-blue-600 hover:bg-blue-700"
+        className={`self-start rounded-full px-6 py-3 text-cream transition disabled:opacity-40 ${
+          listening ? "bg-rust hover:bg-rust" : "bg-clay hover:bg-clay-dark"
         }`}
       >
         {listening ? "Stop" : "Talk"}
       </button>
 
-      <div className="min-h-6 text-sm text-gray-500 dark:text-gray-400">
+      <div className="min-h-6 text-sm text-muted">
         {interim || status}
       </div>
 
@@ -200,8 +198,8 @@ export default function Home() {
             key={i}
             className={
               turn.role === "user"
-                ? "self-end rounded-lg bg-gray-100 px-4 py-2 dark:bg-gray-800"
-                : "self-start rounded-lg bg-blue-50 px-4 py-2 dark:bg-blue-950"
+                ? "self-end rounded-lg bg-shell px-4 py-2"
+                : "self-start rounded-lg border border-sand bg-cream px-4 py-2"
             }
           >
             {turn.text}

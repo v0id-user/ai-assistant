@@ -44,13 +44,14 @@ Fill in `.env`:
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — from
   https://console.upstash.com
 
-Two things need doing once before it will talk:
+One thing needs doing before it will talk:
 
-1. **Accept the Groq TTS model terms.** The TTS route returns
-   `model_terms_required` until an org admin accepts them at
-   https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english
-2. **Create an Upstash Redis database** and paste both values above. Without
-   them `/api/chat` fails on the memory load.
+**Create an Upstash Redis database** and paste both values above. Without them
+`/api/chat` fails on the memory load. (The Groq TTS model terms are already
+accepted on this account.)
+
+Single visual theme: a warm cream ground with a fine grain overlay. There is
+no light/dark switching by design.
 
 Use Chrome or Edge on desktop. The Web Speech API is not available everywhere,
 and the page says so if it is missing.
@@ -61,7 +62,7 @@ Every stage boundary is marked with `performance.now()` and the deltas are
 logged. Server-side, per request:
 
     [chat] total=1918.4ms memory_load=+2.6ms llm_round_0=+478.9ms tools_round_0=+909.9ms llm_round_1=+527ms
-    [tts]  total=812.0ms tts_first_byte=+790.1ms tts_complete=+21.9ms
+    [tts]  total=711.8ms tts_first_byte=+216.5ms tts_complete=+495.2ms
 
 Client-side, in the browser console, covering the full round trip through to
 playback start:
