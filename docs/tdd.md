@@ -1,9 +1,42 @@
+# Sarjy - Technical Design
+
+## 1. What I'm building
+
+Sarjy is a browser based voice assistant. You talk to it, it answers out loud,
+it remembers things you told it in earlier sessions, and it can pull live
+weather when you ask.
+
+## 2. Scope
+
+**In:**
+- Voice in, voice out
+- Memory across sessions (facts the user states about themselves)
+- Conversation history within a session
+- Streaming STT
+- One external API (weather)
+- Deployed and publicly reachable
+
+**Out (and why):**
+- No authentication or multi user support. Single demo user, session scoped
+  identity is enough for the floor.
+- No mobile specific UI. Desktop browser only, keeps the surface small.
+- No error recovery beyond basic failure states. Out of scope for a demo.
+- No self hosted vector store. Using Upstash so the storage question does not
+  eat the time budget.
+- No real observability stack. Timing logs are enough to make latency
+  measurable.
+
+## 3. Architecture
+
+    voice in -> STT -> semantic cache lookup
+                         |- hit  -> cached answer + cached audio
+                         |- miss -> LLM (+ weather tool) -> TTS -> audio out
 
 **Key decisions:**
 
 | Decision | Choice | Why | Alternative rejected |
 |---|---|---|---|
-| STT | Browser Web Speech API | Zero setup, brief says audio plumbing is not being evaluated | Whisper on Groq, more latency in the path |
+| STT | Browser Web Speech API | Zero setup, brief says audio plumbing is not being evaluated | Whisper on Groq, adds latency to the path |
 | LLM | Groq | Fastest time to first token, which is what the deep dive is about | OpenAI, slower first token |
 | TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
