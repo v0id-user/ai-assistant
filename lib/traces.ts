@@ -16,6 +16,8 @@ export type Trace = {
   transcript: string;
   response: string;
   tools?: ToolCall[];
+  // Exactly what was sent to the LLM for this turn, for debugging.
+  request?: { role: string; content: string }[];
   timings: { totalMs: number; stages: { name: string; deltaMs: number }[] };
 };
 

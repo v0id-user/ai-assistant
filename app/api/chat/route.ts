@@ -88,6 +88,18 @@ function repairRunOn(text: string): string {
   return text.replace(/([.!?])([A-Z\u0600-\u06FF])/g, "$1 $2");
 }
 
+// The model is told to reply in exactly one sentence. When it instead narrates
+// its own turn-taking ("...we already responded. So we stop."), that text
+// always trails the real answer. Since a second sentence is out of spec
+// anyway, keep the first and drop the rest. Deterministic, unlike prompting.
+function firstSentence(text: string): string {
+  const match = text.match(/^[\s\S]*?[.!?](?=\s|$)/);
+  if (!match) return text;
+  const head = match[0].trim();
+  // Guard against clipping on a decimal or an abbreviation.
+  return head.length >= 12 ? head : text;
+}
+
 function systemPrompt(facts: string[]): string {
   const base =
     "You are Sarjy, a voice assistant. Your replies are read aloud, so keep " +
@@ -256,7 +268,7 @@ async function respond(
     timer.mark("llm_final");
   }
 
-  text = repairRunOn(text.trim());
+  text = firstSentence(repairRunOn(text.trim()));
 
   const timings = timer.done();
 
@@ -272,6 +284,12 @@ async function respond(
           transcript,
           response: text,
           tools: toolLog,
+          request: messages
+            .filter((m) => typeof m.content === "string")
+            .map((m) => ({
+              role: m.role,
+              content: String(m.content).slice(0, 400),
+            })),
           timings,
         }),
         recordTurns(
