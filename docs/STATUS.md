@@ -12,12 +12,18 @@ Actually run against production, not localhost and not assumed:
 | `GET /` | 200 |
 | `POST /api/stt` | real webm/opus upload transcribed correctly, ~300-500ms |
 | `POST /api/chat` | `save_fact` fires, facts persist to Upstash |
+| memory across a New session | fact stated, New session, recalled correctly |
 | `POST /api/chat` (fresh, no history) | recalls the stored location **and** calls `get_weather` |
 | `POST /api/tts` | 200, ~85KB wav, 24kHz mono, first byte ~185ms |
 | `GET /api/session` | current session with turns and facts |
 | `GET /api/sessions` | caller's sessions only |
 | `GET /api/sessions/[id]` | 404 unless the caller owns it |
 | `GET /_debug/traces` | caller's current session only |
+
+Facts are owner scoped (`sarjy:facts:<ownerId>`) and turns are session scoped,
+so starting a new conversation clears the transcript but keeps memory. A second
+cookie asking the same question gets no answer, so the broader key does not
+leak across visitors.
 
 Cookie isolation was tested with two independent cookie jars. Given A's exact
 session id, B still gets 404 on both read and switch, and sees an empty
