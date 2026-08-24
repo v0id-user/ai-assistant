@@ -168,6 +168,16 @@ Canned ids (`canned:*`) and learned ids (`learned:*`) cannot collide.
 string. Safe today because it is a server-minted UUID from the cookie, but it is
 unescaped. Noted, not fixed.
 
+**Observed false positive (live, 2026-08-24).** In a 13 turn user session
+(6 hits, 7 misses, 46% hit rate), "Where do you live?" hit the learned entry
+for "Where do I live?" and answered "You live in Jeddah." This is exactly the
+overlap the threshold experiment predicted: the I/you pronoun flip scores above
+0.90, so no threshold that catches real paraphrases can exclude it. Harmless in
+this instance, but it is the known limit of embedding similarity for personal
+questions, not a new bug. Fixing it properly needs something other than cosine
+distance, for example a cheap intent check on the pronoun before serving a
+learned hit.
+
 **Where it stands:**
 - Cache logic verified by API (hit, miss, canned paraphrase, cross-owner
   isolation) but **not yet tested by the user in the live UI.**

@@ -200,6 +200,12 @@ Chosen thresholds, from the data:
   shows is unavoidable at any threshold loose enough to catch paraphrases. So
   learned effectively catches only re-asks of the same question.
 
+**Confirmed in live use.** A 13 turn session gave 6 hits and 7 misses (46%),
+hits at 280 to 460ms against misses at 1000 to 1830ms. The predicted false
+positive appeared: "Where do you live?" matched the learned entry for "Where do
+I live?". The pronoun flip is not separable at any threshold that still catches
+genuine paraphrases, which is the honest limit of this approach.
+
 **Not built: filler audio.** The mechanism is designed (random non-committal
 vocalisation on the miss path, gated so hits stay silent) but the audio assets
 need TTS synthesis, and the TTS daily token cap was exhausted during testing.
