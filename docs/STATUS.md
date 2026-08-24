@@ -34,23 +34,21 @@ most of that hop was a localhost artifact.
 
 ## 2. Unmet from Section 2
 
-**"Voice in, voice out" is only half verified.** Every server leg is confirmed
-in production. What has never been executed by anyone is the browser half of a
-real turn: `MediaRecorder` -> upload -> `audio.play()`. The Web Speech version
-was clicked through once on localhost before it was replaced; the MediaRecorder
-version has never been driven by a human, locally or deployed.
+**Nothing.** Every section 2 item is met: voice in and voice out, memory across
+sessions, in-session history, speech to text on every desktop browser, weather,
+deployed and publicly reachable.
 
-Everything else in section 2 is met: memory across sessions, in-session
-history, speech to text on every desktop browser, weather, deployed and
-publicly reachable.
+The mic path -- `MediaRecorder` -> upload -> `audio.play()` -- was confirmed
+working by the user on 2026-08-24. It is the one leg that cannot be verified
+from a terminal, since it needs a real microphone.
 
 "Streaming STT" was struck from section 2 deliberately. Groq transcription is
 batch only, confirmed at the type level. See the amendment in `tdd.md`.
 
 ## 3. Broken, half-finished, untested
 
-- **The mic path.** Highest-risk unknown. Untested: autoplay policy on the real
-  domain, the Stop-to-upload handoff, back-to-back turns.
+- **The mic path works**, but only a single confirmed run. Not yet exercised:
+  back-to-back turns, long recordings, and recovery after a denied mic prompt.
 - **`llm_first_token` does not exist.** The chat route is non-streaming, so
   `llm_round_0` is completion time, not first token. Matters for the deep dive.
 - **Empty-reply fallback is unexercised.** The `tool_choice: "none"` retry in
