@@ -26,9 +26,17 @@ const CANNED = [
   ["Nice to meet you.", "Nice to meet you too!"],
 ];
 
-let audioOk = 0, audioFail = 0;
+let audioOk = 0, audioFail = 0, skipped = 0;
 for (const [q, a] of CANNED) {
   let stored = false;
+  // Skip synthesis if this answer's audio is already stored, so a re-run only
+  // spends TTS quota on what is missing.
+  if (await redis.get(audioKey(a))) {
+    skipped++;
+    await ix.upsert([{ id:`canned:${q.toLowerCase()}`, data:q, metadata:{ answer:a, audio:audioKey(a), kind:"canned" } }]);
+    console.log(`[have ] "${q}"`);
+    continue;
+  }
   try {
     const speech = await groq.audio.speech.create({ model:"canopylabs/orpheus-v1-english", voice:"hannah", input:a, response_format:"wav" });
     const buf = Buffer.from(await speech.arrayBuffer());
@@ -41,4 +49,4 @@ for (const [q, a] of CANNED) {
   await ix.upsert([{ id:`canned:${q.toLowerCase()}`, data:q, metadata:{ answer:a, audio:audioKey(a), kind:"canned" } }]);
   console.log(`${stored?"[audio]":"[text ]"} "${q}"`);
 }
-console.log(`\nseeded ${CANNED.length} canned entries. audio: ${audioOk} ok, ${audioFail} missing (client will synth on first hit).`);
+console.log(`\nseeded ${CANNED.length} canned entries. audio: ${audioOk} new, ${skipped} already had audio, ${audioFail} still missing.`);
