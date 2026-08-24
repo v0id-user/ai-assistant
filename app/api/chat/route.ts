@@ -192,8 +192,17 @@ async function respond(
     // Inline the stored audio so the client plays it with no TTS round trip.
     const audio = await getAudio(hit.audioRef);
     const timings = timer.done();
-    after(() =>
-      recordTurns(
+    after(() => {
+      void saveTrace({
+        at: new Date().toISOString(),
+        sessionId,
+        transcript,
+        response: hit.text,
+        cached: true,
+        cacheKind: hit.kind,
+        timings,
+      }).catch(() => {});
+      void recordTurns(
         ownerId,
         sessionId,
         [
@@ -201,8 +210,8 @@ async function respond(
           { role: "assistant", text: hit.text },
         ],
         Date.now(),
-      ).catch(() => {}),
-    );
+      ).catch(() => {});
+    });
     return Response.json({
       text: hit.text,
       cached: true,
@@ -395,6 +404,7 @@ async function respond(
           sessionId,
           transcript,
           response: text,
+          cached: false,
           tools: toolLog,
           tokens,
           request: messages

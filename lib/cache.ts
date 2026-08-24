@@ -19,7 +19,7 @@ function vector(): Index {
 
 // Tuned by the threshold experiment (scripts/threshold.mjs). Cosine similarity.
 const CANNED_THRESHOLD = Number(process.env.CACHE_CANNED_THRESHOLD ?? "0.72");
-const LEARNED_THRESHOLD = Number(process.env.CACHE_LEARNED_THRESHOLD ?? "0.88");
+const LEARNED_THRESHOLD = Number(process.env.CACHE_LEARNED_THRESHOLD ?? "0.90");
 
 type CacheMeta = {
   answer: string;

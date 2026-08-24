@@ -16,6 +16,8 @@ export type Trace = {
   transcript: string;
   response: string;
   tools?: ToolCall[];
+  cached?: boolean;
+  cacheKind?: string;
   // Summed across every LLM call in the turn. `cached` is the prefix-cache
   // hit reported by Groq; 0 means the prompt prefix was not reused.
   tokens?: { prompt: number; completion: number; cached: number };

@@ -154,6 +154,57 @@ match. Per session scoping lowers the hit rate and is the right trade.
 - Stream TTS sentence by sentence instead of waiting for the full response.
 - Measure under real network conditions, not localhost.
 
+## 6b. Results (built and measured)
+
+Built: one Upstash Vector index with hosted `text-embedding-3-small`. Lookup
+runs before `getFacts` in `respond()`; a hit returns stored text plus inlined
+audio and skips the LLM and TTS. Write-back runs in the existing `after()`
+block. Tool turns (weather) are not cached.
+
+**Latency, server-side chat total, deployed, n=12 each:**
+
+| | median | p95 |
+|---|---|---|
+| Cache hit | 283ms | 3350ms |
+| Cache miss | 1489ms | 6208ms |
+
+A hit also skips TTS (~600ms), so the end-to-end time-to-first-audio saving is
+larger than the ~1200ms chat delta: roughly 1200ms of LLM plus 600ms of TTS.
+The p95 figures are dominated by Vercel cold starts and network variance, which
+is why median is the honest central number and why hit and miss are reported
+separately, not blended.
+
+The new `cache_lookup` mark (hosted embedding + vector query) costs ~300ms and
+is paid on every turn including misses, so a miss is slightly slower than the
+pre-cache baseline. That is the price of the hit path.
+
+**Threshold experiment (20 hand-written pairs).** The finding was that the
+distributions overlap and there is no clean separating threshold:
+
+    threshold | true-hit | false-hit
+      0.72    |  8/10    |  2/10
+      0.80    |  4/10    |  2/10
+      0.90    |  0/10    |  0/10
+
+The worst case: "where do you live" (about the assistant) scored 0.871 against a
+stored "Where do I live?" (about the user) — higher than every genuine
+paraphrase. One pronoun flips the meaning but barely moves the embedding.
+
+Chosen thresholds, from the data:
+
+- **Canned 0.72.** Loose, because canned answers are generic (greetings,
+  identity, capabilities) and a wrong hit is harmless. Verified: paraphrases
+  like "who are you exactly" and "what are you able to help with" hit.
+- **Learned 0.90.** Near-exact only. A looser learned threshold would serve one
+  answer's personal facts for a differently-meant question, which the data
+  shows is unavoidable at any threshold loose enough to catch paraphrases. So
+  learned effectively catches only re-asks of the same question.
+
+**Not built: filler audio.** The mechanism is designed (random non-committal
+vocalisation on the miss path, gated so hits stay silent) but the audio assets
+need TTS synthesis, and the TTS daily token cap was exhausted during testing.
+Left as a next step rather than shipped as dead code.
+
 ## 7. Risks and open questions
 
 - No auth means the deployed demo is open to spam and abuse. Cookie scoping

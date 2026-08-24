@@ -130,6 +130,17 @@ export default async function Traces() {
                     <td className="py-2 pr-4 whitespace-nowrap text-muted">
                       {trace.at.slice(11, 19)}
                       <div className="text-xs">{trace.at.slice(0, 10)}</div>
+                      {trace.cached !== undefined && (
+                        <div
+                          className={`mt-1 inline-block rounded px-1 text-xs ${
+                            trace.cached
+                              ? "bg-clay text-cream"
+                              : "bg-shell text-muted"
+                          }`}
+                        >
+                          {trace.cached ? `hit·${trace.cacheKind}` : "miss"}
+                        </div>
+                      )}
                     </td>
                     <td className="max-w-xs py-2 pr-4">{trace.transcript}</td>
                     <td className="max-w-xs py-2 pr-4">{trace.response}</td>
