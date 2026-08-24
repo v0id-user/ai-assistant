@@ -88,18 +88,6 @@ function repairRunOn(text: string): string {
   return text.replace(/([.!?])([A-Z\u0600-\u06FF])/g, "$1 $2");
 }
 
-// The model is told to reply in exactly one sentence. When it instead narrates
-// its own turn-taking ("...we already responded. So we stop."), that text
-// always trails the real answer. Since a second sentence is out of spec
-// anyway, keep the first and drop the rest. Deterministic, unlike prompting.
-function firstSentence(text: string): string {
-  const match = text.match(/^[\s\S]*?[.!?](?=\s|$)/);
-  if (!match) return text;
-  const head = match[0].trim();
-  // Guard against clipping on a decimal or an abbreviation.
-  return head.length >= 12 ? head : text;
-}
-
 function systemPrompt(facts: string[]): string {
   const base =
     "You are Sarjy, a voice assistant. Your replies are read aloud, so keep " +
@@ -252,23 +240,49 @@ async function respond(
     timer.mark(`tools_round_${round}`);
   }
 
-  // The model can end a round with neither tool calls nor content, and it can
-  // run out of tool rounds. Either way the user would hear silence, so make one
-  // last call with tools off to force a spoken reply.
-  if (!text.trim()) {
-    const final = await groq.chat.completions.create({
-      model: MODEL,
-      messages,
-      tool_choice: "none",
-      reasoning_format: "hidden",
-      temperature: 0.3,
-      max_completion_tokens: 120,
-    });
-    text = final.choices[0].message.content?.trim() ?? "";
-    timer.mark("llm_final");
+  // The spoken reply always comes from its own call with tools switched off
+  // and a JSON schema enforcing a single `reply` field. Structured output
+  // cannot be combined with tool calling, which is why it is a separate call;
+  // the payoff is that the model has no place to put turn-taking narration,
+  // so it cannot reach the user. This also covers the case where the tool
+  // loop ended with no content at all.
+  const spoken = await groq.chat.completions.create({
+    model: MODEL,
+    messages: [
+      ...messages,
+      {
+        role: "system",
+        content:
+          "Reply to the user's last message in one short spoken sentence, " +
+          "using the tool results above. Output only the reply itself.",
+      },
+    ],
+    reasoning_format: "hidden",
+    temperature: 0.3,
+    max_completion_tokens: 120,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "spoken_reply",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: { reply: { type: "string" } },
+          required: ["reply"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  timer.mark("llm_reply");
+
+  try {
+    text = JSON.parse(spoken.choices[0].message.content ?? "{}").reply ?? text;
+  } catch {
+    // Schema-constrained output should always parse; keep the loop's text if not.
   }
 
-  text = firstSentence(repairRunOn(text.trim()));
+  text = repairRunOn(text.trim());
 
   const timings = timer.done();
 
