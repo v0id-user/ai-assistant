@@ -16,6 +16,8 @@ Actually run against production, not localhost and not assumed:
 | weather with no city | asks which city, fires no tool |
 | prompt cache | `cached: 512` on the third turn of a session |
 | sessions panel at 900px | hidden by default, opens and closes from the header |
+| two facts in one sentence | both saved, `name` and `occupation` |
+| 20 turn manual session | no reasoning leaks, no run-ons, recall never fired a tool |
 | `POST /api/chat` (fresh, no history) | recalls the stored location **and** calls `get_weather` |
 | `POST /api/tts` | 200, ~85KB wav, 24kHz mono, first byte ~185ms |
 | `GET /api/session` | current session with turns and facts |
@@ -121,6 +123,19 @@ to reach it. It is still docked on wide screens, and on narrower ones a
 Sessions button in the header opens it as an overlay with a close link. Header
 buttons wrap instead of overflowing.
 
+### Multi-fact save
+
+A message stating two facts used to save one of them twice and drop the other.
+"My name is Fahad and I work as a backend engineer" produced two identical
+`save_fact(name)` calls and never stored the occupation.
+
+The `save_fact` description said "call once per distinct subject", which the
+model satisfied by calling once for the name; nothing told it to cover every
+fact in the message. The description now says to call once for each fact with a
+different subject, and never twice with the same subject. Description only, no
+code or call flow change. Verified on the original failing sentence: both
+`name` and `occupation` are stored.
+
 ## 3. Broken, half-finished, untested
 
 - **The mic path works**, but only a single confirmed run. Not yet exercised:
@@ -138,6 +153,10 @@ buttons wrap instead of overflowing.
 - **`gpt-oss-20b` is over-eager on tools.** Observed saying "I live in Jeddah"
   and getting both a save_fact and an unprompted weather lookup. It also
   offered to set a reminder it has no tool for.
+- **Multi-fact messages take one tool round per fact.** "My name is Fahad and I
+  work as a backend engineer" saves both facts correctly now, but in two
+  sequential rounds rather than two calls in one round, so the turn is slower
+  than a single fact turn. Correctness is fixed, the extra round trip is not.
 - **`MAX_TOOL_ROUNDS` exhaustion never hit.** Maximum observed is 2 rounds.
 - **Unbounded history.** The client replays the whole message log every turn
   with no trimming; a long session will eventually hit the context limit.
