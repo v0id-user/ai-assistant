@@ -74,6 +74,14 @@ export default async function Traces() {
   const groups = groupBySession(traces);
   const markdown = toMarkdown(groups);
 
+  // Hit rate over turns that went through the cache (weather/tool turns record
+  // cached:false; older traces without the field are ignored).
+  const scored = traces.filter((t) => t.cached !== undefined);
+  const hits = scored.filter((t) => t.cached).length;
+  const hitRate = scored.length
+    ? Math.round((hits / scored.length) * 100)
+    : 0;
+
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-4 p-8">
       <header className="flex items-baseline justify-between">
@@ -83,6 +91,15 @@ export default async function Traces() {
             {traces.length} turns across {groups.length} session
             {groups.length === 1 ? "" : "s"}, newest first.
           </p>
+          {scored.length > 0 && (
+            <p className="mt-1 text-sm">
+              <span className="font-medium">{hitRate}% cache hit</span>
+              <span className="text-muted">
+                {" "}
+                — {hits}/{scored.length} turns
+              </span>
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <CopyButton markdown={markdown} />
