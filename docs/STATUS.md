@@ -15,6 +15,7 @@ Actually run against production, not localhost and not assumed:
 | memory across a New session | fact stated, New session, recalled correctly |
 | weather with no city | asks which city, fires no tool |
 | prompt cache | `cached: 512` on the third turn of a session |
+| sessions panel at 900px | hidden by default, opens and closes from the header |
 | `POST /api/chat` (fresh, no history) | recalls the stored location **and** calls `get_weather` |
 | `POST /api/tts` | 200, ~85KB wav, 24kHz mono, first byte ~185ms |
 | `GET /api/session` | current session with turns and facts |
@@ -99,6 +100,27 @@ round numbers; each turn records token usage including `cached`; the exact
 payload sent to the LLM is stored; the page groups by session and has a copy
 to markdown button.
 
+### UI and quota handling
+
+**TTS failure degrades to text.** The reply is already on screen before speech
+is requested, so a failed TTS call now shows a one line notice instead of a raw
+error, and the turn is not lost. Rate limits get their own wording.
+
+**Voice on / Text only toggle** in the header. Off skips the TTS call entirely,
+so behaviour can be tested without burning the daily speech quota. `/api/chat`
+never calls TTS, so hitting it directly with a fixed `sarjy_sid` cookie also
+works for scripted runs.
+
+**English only.** The system prompt now says to always reply in English,
+because `orpheus-v1-english` is the only TTS model available. The Arabic model
+returns 400 (terms never accepted) and PlayAI is retired, so there is no model
+to switch to when the daily cap is hit; only the account tier would change it.
+
+**Sessions panel works at every width.** It was hidden below 1280px with no way
+to reach it. It is still docked on wide screens, and on narrower ones a
+Sessions button in the header opens it as an overlay with a close link. Header
+buttons wrap instead of overflowing.
+
 ## 3. Broken, half-finished, untested
 
 - **The mic path works**, but only a single confirmed run. Not yet exercised:
@@ -111,6 +133,8 @@ to markdown button.
 - **~1000 prompt tokens per call** regardless of what was said, so ~2000 per
   turn, because the system prompt and tool definitions are resent every time.
   The prompt cache halves the cost of this once warm.
+- **TTS has a hard daily cap** of 3600 tokens on this tier, and it has been hit
+  once. There is no alternative model, so the app falls back to text.
 - **`gpt-oss-20b` is over-eager on tools.** Observed saying "I live in Jeddah"
   and getting both a save_fact and an unprompted weather lookup. It also
   offered to set a reminder it has no tool for.
