@@ -41,8 +41,16 @@ weather when you ask.
 | STT | Whisper on Groq (`whisper-large-v3`) | Works in every browser; Web Speech does not | Browser Web Speech API, unusable in Brave and Firefox |
 | LLM | Groq | Fastest time to first token, which is what this project optimises for | OpenAI, slower first token |
 | LLM model | `openai/gpt-oss-20b` | Measured against every chat model Groq offers | `gpt-oss-120b`, slower and leaked reasoning |
-| TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
+| TTS | Groq (`canopylabs/orpheus-v1-english`) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
+
+### Amendment: TTS model
+
+This originally named Groq PlayAI. Groq has since retired those models, so the
+live family is Orpheus and the app uses `canopylabs/orpheus-v1-english`.
+Override with `GROQ_TTS_MODEL` and `GROQ_TTS_VOICE`. Orpheus is English only;
+the Arabic model exists but its terms were never accepted, so replies are
+pinned to English.
 
 ### Amendment: STT moved off the Web Speech API
 
