@@ -30,7 +30,12 @@ Design notes and measurements are in [`docs/tdd.md`](docs/tdd.md).
 | `app/api/stt/route.ts` | Audio to text |
 | `app/api/chat/route.ts` | Memory + LLM + tools |
 | `app/api/tts/route.ts` | Text to audio |
-| `lib/memory.ts` | Get/save facts by session id |
+| `lib/memory.ts` | Get/save facts, keyed to the cookie owner |
+| `lib/cache.ts` | Semantic cache lookup and write back |
+| `lib/llm.ts` | Tool loop and the spoken-reply call |
+| `lib/prompt.ts` | System prompt and message assembly |
+| `lib/tools.ts` | Tool definitions and dispatch |
+| `lib/identity.ts` | Cookie-based owner id |
 | `lib/weather.ts` | Open-Meteo fetch |
 | `lib/timing.ts` | Stage-boundary marks |
 
