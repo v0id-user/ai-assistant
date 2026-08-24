@@ -193,10 +193,13 @@ async function respond(
       model: MODEL,
       messages,
       tools,
-      // Without this the model's analysis channel is concatenated into
-      // content, so scratchpad lines like "Need to wait for user." are spoken
-      // aloud. 'hidden' keeps reasoning out of the reply entirely.
+      // 'hidden' keeps the separate reasoning field out of the reply. It
+      // cannot stop the model writing scratchpad text as the answer itself,
+      // so also damp the sampling and cap the length: a spoken reply is one
+      // sentence, and rambling is what the meta-commentary rides in on.
       reasoning_format: "hidden",
+      temperature: 0.3,
+      max_completion_tokens: 120,
     });
     timer.mark(`llm_round_${round}`);
 
@@ -246,6 +249,8 @@ async function respond(
       messages,
       tool_choice: "none",
       reasoning_format: "hidden",
+      temperature: 0.3,
+      max_completion_tokens: 120,
     });
     text = final.choices[0].message.content?.trim() ?? "";
     timer.mark("llm_final");
