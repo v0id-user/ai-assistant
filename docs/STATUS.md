@@ -136,6 +136,49 @@ different subject, and never twice with the same subject. Description only, no
 code or call flow change. Verified on the original failing sentence: both
 `name` and `occupation` are stored.
 
+## 2c. Deep dive: semantic cache (built)
+
+One Upstash Vector index, hosted `text-embedding-3-small` (no separate embedding
+provider). Lookup runs before `getFacts` in `respond()`; a hit returns stored
+text plus inlined base64 audio and skips the LLM and TTS. Write-back is in the
+existing `after()` block. Weather/tool turns are not cached.
+
+Two kinds, two thresholds, chosen from a 20-pair experiment (see tdd.md 6b):
+- **canned 0.72** — 12 hand-seeded generic exchanges, loose match, harmless
+- **learned 0.90** — per-owner, near-exact only, because personal questions
+  cannot cache loosely without leaking another answer's facts
+
+**Measured (deployed, server-side chat total, n=12 each):**
+
+| | median | p95 |
+|---|---|---|
+| hit | 283ms | 3350ms |
+| miss | 1489ms | 6208ms |
+
+A hit also skips TTS (~600ms), so end-to-end time-to-first-audio saves roughly
+1200ms LLM + 600ms TTS. `cache_lookup` adds ~300ms to every turn including
+misses; that is the price of the hit path.
+
+**Isolation verified:** learned entries carry `ownerId` and the query filters on
+`kind = 'canned' OR ownerId = '<caller>'`. A learned answer from one cookie
+owner is never in another owner's candidate set, tested with identical text.
+Canned ids (`canned:*`) and learned ids (`learned:*`) cannot collide.
+
+**Per-owner scoping caveat:** `ownerId` is interpolated raw into the filter
+string. Safe today because it is a server-minted UUID from the cookie, but it is
+unescaped. Noted, not fixed.
+
+**Where it stands:**
+- Cache logic verified by API (hit, miss, canned paraphrase, cross-owner
+  isolation) but **not yet tested by the user in the live UI.**
+- Canned audio is 8/12 stored; the TTS daily cap (3600 tokens) was exhausted.
+  The other 4 cache their audio the first time each is spoken with Voice on.
+- Filler audio (design 6) not built: needs TTS synthesis, quota exhausted.
+- The chat route was refactored to orchestration only (440 to 152 lines);
+  tool defs, prompt, and the LLM loop live in lib/tools, lib/prompt, lib/llm.
+- Traces badge each turn hit/miss and the page header shows an aggregate hit
+  rate over the caller's turns.
+
 ## 3. Broken, half-finished, untested
 
 - **The mic path works**, but only a single confirmed run. Not yet exercised:
