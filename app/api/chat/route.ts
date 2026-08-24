@@ -258,19 +258,16 @@ async function respond(
         : "llm_answers",
     );
 
+    // Always kept in the context. Dropping it on plain turns was tried and
+    // reverted: the schema call writes worse replies without the draft, and
+    // after tool results an unfinished exchange makes it attempt another
+    // tool call, which the schema call rejects.
+    messages.push(message as ChatCompletionMessageParam);
+
     if (toolCalls.length === 0) {
       text = message.content ?? "";
-      // On a plain turn the draft is left out of the context: it is
-      // unconstrained prose and the schema call should write fresh rather
-      // than paraphrase it. Once tools have run it must be pushed, because
-      // an exchange that ends on a tool result is unfinished and the schema
-      // call will try to continue it with another tool call.
-      if (round > 0) messages.push(message as ChatCompletionMessageParam);
       break;
     }
-
-    // Required before the matching role:"tool" results.
-    messages.push(message as ChatCompletionMessageParam);
 
     for (const call of toolCalls) {
       let result: string;
