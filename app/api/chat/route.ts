@@ -258,10 +258,13 @@ async function respond(
     );
 
     if (toolCalls.length === 0) {
-      // Keep the draft as a fallback but do not put it in the context: it is
-      // unconstrained prose, and the schema call should write fresh rather
-      // than paraphrase it.
       text = message.content ?? "";
+      // On a plain turn the draft is left out of the context: it is
+      // unconstrained prose and the schema call should write fresh rather
+      // than paraphrase it. Once tools have run it must be pushed, because
+      // an exchange that ends on a tool result is unfinished and the schema
+      // call will try to continue it with another tool call.
+      if (round > 0) messages.push(message as ChatCompletionMessageParam);
       break;
     }
 
