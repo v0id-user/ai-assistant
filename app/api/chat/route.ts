@@ -236,13 +236,14 @@ async function respond(
       // sentence, and rambling is what the meta-commentary rides in on.
       reasoning_format: "hidden",
       temperature: 0.3,
-      // This call only has to decide whether a tool is needed; any prose it
-      // writes is discarded by the schema call below. Measured: emitting a
-      // tool call costs 88 to 122 completion tokens including hidden
-      // reasoning, and at 50 it is truncated before the call appears
-      // (finish_reason "length", no tool_calls). 200 leaves headroom while
-      // still cutting the wasted draft short.
-      max_completion_tokens: 200,
+      // Do not cap this to save the wasted draft: the same call also has to
+      // emit tool calls, and once tool results are in the context the hidden
+      // reasoning grows. Capping it truncates mid tool call, which surfaces
+      // as "Failed to parse tool call arguments" or, when the exchange is
+      // left unfinished, "Tool choice is none, but model called a tool".
+      // Measured: 50 truncates before any call appears, 200 breaks the
+      // multi-fact and post-tool rounds.
+      max_completion_tokens: 800,
     });
     account(completion.usage);
 
