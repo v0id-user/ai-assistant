@@ -105,7 +105,7 @@ function systemPrompt(): string {
     "tool call just because it appears above. If the latest message can be " +
     "answered directly, answer it and call nothing. " +
     "After using tools, always reply to the user in words. " +
-    "Always reply in the same language the user spoke in.";
+    "Always reply in English; the voice can only speak English.";
 
   return base;
 }

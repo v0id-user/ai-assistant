@@ -77,6 +77,9 @@ export default function Home() {
   const [speechError, setSpeechError] = useState("");
   // TTS has a hard daily token cap, so allow testing behaviour without it.
   const [voiceOn, setVoiceOn] = useState(true);
+  // The panel is docked on wide screens and opens on demand on narrow ones,
+  // rather than disappearing below a breakpoint.
+  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -299,15 +302,27 @@ export default function Home() {
 
   return (
     <>
-      <aside className="fixed top-4 left-4 hidden w-56 rounded border border-sand bg-shell/70 p-3 text-sm xl:block">
+      <aside
+        className={`fixed top-4 left-4 z-20 w-56 rounded border border-sand bg-cream p-3 text-sm shadow-sm xl:block xl:bg-shell/70 xl:shadow-none ${
+          sessionsOpen ? "block" : "hidden"
+        }`}
+      >
         <div className="mb-2 flex items-baseline justify-between">
           <span className="font-medium">Sessions</span>
-          <button
-            onClick={() => void loadSessions()}
-            className="text-xs text-muted hover:text-ink"
-          >
-            reload
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void loadSessions()}
+              className="text-xs text-muted hover:text-ink"
+            >
+              reload
+            </button>
+            <button
+              onClick={() => setSessionsOpen(false)}
+              className="text-xs text-muted hover:text-ink xl:hidden"
+            >
+              close
+            </button>
+          </div>
         </div>
         {sessions.length === 0 ? (
           <p className="text-xs text-muted">None yet.</p>
@@ -338,7 +353,13 @@ export default function Home() {
             Talk to it. It remembers, and it knows the weather.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <button
+            onClick={() => setSessionsOpen((v) => !v)}
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell xl:hidden"
+          >
+            Sessions
+          </button>
           <button
             onClick={() => setVoiceOn((v) => !v)}
             title="Skip text to speech, which has a daily quota"
