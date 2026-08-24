@@ -23,7 +23,12 @@ export type Trace = {
   tokens?: { prompt: number; completion: number; cached: number };
   // Exactly what was sent to the LLM for this turn, for debugging.
   request?: { role: string; content: string }[];
-  timings: { totalMs: number; stages: { name: string; deltaMs: number }[] };
+  // `atMs` is the offset at which the stage finished, so a stage's start is
+  // atMs minus deltaMs. The traces page uses both to lay out a waterfall.
+  timings: {
+    totalMs: number;
+    stages: { name: string; atMs: number; deltaMs: number }[];
+  };
 };
 
 export async function saveTrace(trace: Trace): Promise<void> {

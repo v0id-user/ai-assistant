@@ -11,6 +11,28 @@ function stageCells(trace: Trace) {
   return trace.timings.stages.map((s) => `${s.name} ${s.deltaMs}ms`);
 }
 
+// Colour by kind so the shape of a turn reads without reading labels. Only
+// existing theme tokens, no new palette.
+function stageColour(name: string): string {
+  if (name.startsWith("cache_")) return "bg-sand";
+  if (name.startsWith("memory_")) return "bg-muted";
+  if (name.startsWith("run_")) return "bg-rust";
+  if (name.startsWith("tts_")) return "bg-clay-dark";
+  if (name.startsWith("llm_")) return "bg-clay";
+  return "bg-shell";
+}
+
+// A stage's mark records the time it finished, so its start is that minus its
+// own duration.
+function stageBars(trace: Trace) {
+  return trace.timings.stages.map((st) => ({
+    name: st.name,
+    ms: st.deltaMs,
+    startMs: Math.max(0, st.atMs - st.deltaMs),
+    colour: stageColour(st.name),
+  }));
+}
+
 function toolCells(trace: Trace) {
   return (trace.tools ?? []).map(
     (t) => `${t.name}(${t.args.replace(/[{}"]/g, "")})`,
@@ -122,7 +144,10 @@ export default async function Traces() {
         </p>
       )}
 
-      {groups.map(([sessionId, rows]) => (
+      {groups.map(([sessionId, rows]) => {
+        // One scale for the whole session so rows are comparable at a glance.
+        const scaleMs = Math.max(...rows.map((r) => r.timings.totalMs), 1);
+        return (
         <section key={sessionId} className="flex flex-col gap-2">
           <h2 className="font-mono text-sm text-muted">
             session {sessionId} · {rows.length} turn
@@ -198,15 +223,36 @@ export default async function Traces() {
                       )}
                     </td>
                     <td className="py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {stageCells(trace).map((label) => (
-                          <span
-                            key={label}
-                            className="rounded bg-shell px-2 py-0.5 text-xs whitespace-nowrap"
+                      <div className="min-w-[24rem]">
+                        {stageBars(trace).map((bar, k) => (
+                          <div
+                            key={k}
+                            className="flex items-center gap-2 py-[1px]"
                           >
-                            {label}
-                          </span>
+                            <span className="w-40 shrink-0 truncate font-mono text-[11px] text-muted">
+                              {bar.name}
+                            </span>
+                            <div className="relative h-4 flex-1 rounded-sm bg-shell/50">
+                              <div
+                                className={`absolute top-0 h-4 rounded-sm ${bar.colour}`}
+                                style={{
+                                  left: `${(bar.startMs / scaleMs) * 100}%`,
+                                  width: `${Math.max(
+                                    (bar.ms / scaleMs) * 100,
+                                    0.6,
+                                  )}%`,
+                                }}
+                                title={`${bar.name} ${bar.ms}ms`}
+                              />
+                            </div>
+                            <span className="w-14 shrink-0 text-right font-mono text-[11px] text-muted">
+                              {bar.ms}ms
+                            </span>
+                          </div>
                         ))}
+                        <div className="mt-1 border-t border-sand pt-1 text-right font-mono text-xs font-medium">
+                          total {trace.timings.totalMs}ms
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -215,7 +261,8 @@ export default async function Traces() {
             </table>
           </div>
         </section>
-      ))}
+        );
+      })}
     </main>
   );
 }
