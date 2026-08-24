@@ -88,6 +88,9 @@ function systemPrompt(facts: string[]): string {
     "themselves, call save_fact. When asked about weather, call get_weather; " +
     "if no location was given, ask which city rather than guessing. " +
     "Only call a tool when the user's most recent message actually needs it. " +
+    "Questions about the user themselves, such as where they live or what " +
+    "their name is, are answered from what you already know above, with no " +
+    "tool call. get_weather is only for current weather conditions. " +
     "Earlier turns in this conversation are already answered: never repeat a " +
     "tool call just because it appears above. If the latest message can be " +
     "answered directly, answer it and call nothing. " +
@@ -148,14 +151,23 @@ async function respond(
   const facts = await getFacts(ownerId);
   timer.mark("memory_load");
 
-  // `reasoning` is the model's private scratchpad for one turn. Replaying it
-  // makes the model continue its old train of thought, which is how a stale
-  // tool call leaks into an unrelated question.
-  const priorTurns = (history as ChatCompletionMessageParam[]).map((m) => {
-    const rest: Record<string, unknown> = { ...m };
-    delete rest.reasoning;
-    return rest as unknown as ChatCompletionMessageParam;
-  });
+  // History is the conversation, not the tool transcript. Replaying tool
+  // calls, tool results and the model's own `reasoning` makes it continue an
+  // old train of thought: it re-fires stale tools and runs several replies
+  // together. Keep only what was actually said.
+  const priorTurns: ChatCompletionMessageParam[] = (
+    history as { role?: string; content?: unknown }[]
+  )
+    .filter(
+      (m) =>
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        m.content.trim().length > 0,
+    )
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content as string,
+    }));
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(facts) },
