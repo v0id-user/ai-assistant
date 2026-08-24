@@ -199,7 +199,7 @@ async function respond(
       // sentence, and rambling is what the meta-commentary rides in on.
       reasoning_format: "hidden",
       temperature: 0.3,
-      max_completion_tokens: 120,
+      max_completion_tokens: 800,
     });
     timer.mark(`llm_round_${round}`);
 
@@ -259,7 +259,10 @@ async function respond(
     ],
     reasoning_format: "hidden",
     temperature: 0.3,
-    max_completion_tokens: 120,
+    // Hidden reasoning still consumes completion tokens, so this budget has
+    // to cover the model's thinking as well as the JSON. Too low and the
+    // generation is cut off mid-object and fails schema validation.
+    max_completion_tokens: 800,
     response_format: {
       type: "json_schema",
       json_schema: {
