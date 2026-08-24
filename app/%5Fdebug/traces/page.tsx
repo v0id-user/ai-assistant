@@ -1,6 +1,5 @@
 import { getOwnerId } from "@/lib/identity";
-import { getCurrentSessionId } from "@/lib/sessions";
-import { getTraces, type Trace } from "@/lib/traces";
+import { getTracesForOwner, type Trace } from "@/lib/traces";
 
 // Reads Redis on every request; nothing here should be prerendered.
 export const dynamic = "force-dynamic";
@@ -34,7 +33,7 @@ export default async function Traces() {
     // request yet simply has nothing to show.
     const ownerId = await getOwnerId();
     if (ownerId) {
-      traces = await getTraces(await getCurrentSessionId(ownerId));
+      traces = await getTracesForOwner(ownerId);
     }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
@@ -46,7 +45,7 @@ export default async function Traces() {
         <div>
           <h1 className="text-xl font-semibold">Traces</h1>
           <p className="text-sm text-muted">
-            Last {traces.length} turns of your current session, newest first.
+            {traces.length} turns across all your sessions, newest first.
           </p>
         </div>
         <a
@@ -63,7 +62,7 @@ export default async function Traces() {
 
       {!error && traces.length === 0 && (
         <p className="text-sm text-muted">
-          No traces for this session yet. Have a conversation, then refresh.
+          No traces yet. Have a conversation, then refresh.
         </p>
       )}
 
@@ -73,9 +72,11 @@ export default async function Traces() {
             <thead>
               <tr className="border-b border-sand text-left align-bottom">
                 <th className="py-2 pr-4 font-medium">When</th>
+                <th className="py-2 pr-4 font-medium">Session</th>
                 <th className="py-2 pr-4 font-medium">Said</th>
                 <th className="py-2 pr-4 font-medium">Replied</th>
                 <th className="py-2 pr-4 font-medium">Total</th>
+                <th className="py-2 pr-4 font-medium">Tools</th>
                 <th className="py-2 font-medium">Stages</th>
               </tr>
             </thead>
@@ -86,10 +87,29 @@ export default async function Traces() {
                     {trace.at.slice(11, 19)}
                     <div className="text-xs">{trace.at.slice(0, 10)}</div>
                   </td>
+                  <td className="py-2 pr-4 font-mono text-xs whitespace-nowrap text-muted">
+                    {trace.sessionId.slice(0, 8)}
+                  </td>
                   <td className="max-w-xs py-2 pr-4">{trace.transcript}</td>
                   <td className="max-w-xs py-2 pr-4">{trace.response}</td>
                   <td className="py-2 pr-4 whitespace-nowrap font-medium">
                     {trace.timings.totalMs}ms
+                  </td>
+                  <td className="py-2 pr-4">
+                    {trace.tools?.length ? (
+                      <div className="flex flex-col gap-1">
+                        {trace.tools.map((t, j) => (
+                          <span key={j} className="font-mono text-xs">
+                            {t.name}({t.args.replace(/[{}"]/g, "")})
+                            <span className="block text-muted">
+                              → {t.result.replace(/[{}"]/g, "").slice(0, 60)}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
                   </td>
                   <td className="py-2">
                     <div className="flex flex-wrap gap-1">

@@ -8,7 +8,7 @@ import type {
 import { getFacts, saveFact } from "@/lib/memory";
 import { getWeather } from "@/lib/weather";
 import { createTimer } from "@/lib/timing";
-import { saveTrace } from "@/lib/traces";
+import { saveTrace, type ToolCall } from "@/lib/traces";
 import { getCurrentSessionId, recordTurns } from "@/lib/sessions";
 import { requireOwnerId } from "@/lib/identity";
 
@@ -130,6 +130,7 @@ async function respond(
   ];
 
   let text = "";
+  const toolLog: ToolCall[] = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const completion = await groq.chat.completions.create({
@@ -161,6 +162,12 @@ async function respond(
           error: err instanceof Error ? err.message : String(err),
         });
       }
+      toolLog.push({
+        round,
+        name: call.function.name,
+        args: call.function.arguments || "{}",
+        result: result.slice(0, 200),
+      });
       messages.push({
         role: "tool",
         tool_call_id: call.id,
@@ -196,6 +203,7 @@ async function respond(
           sessionId,
           transcript,
           response: text,
+          tools: toolLog,
           timings,
         }),
         recordTurns(
