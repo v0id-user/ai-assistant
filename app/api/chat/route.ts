@@ -14,7 +14,7 @@ import { requireOwnerId } from "@/lib/identity";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
+const MODEL = process.env.GROQ_MODEL ?? "openai/gpt-oss-20b";
 
 // The model can chain save_fact then get_weather, so allow a couple of rounds
 // but keep a hard stop so a confused model cannot loop forever.
@@ -124,7 +124,15 @@ async function runTool(
     return JSON.stringify({ saved: true });
   }
   if (name === "get_weather") {
-    return JSON.stringify(await getWeather(String(args.location)));
+    const location = String(args.location ?? "").trim();
+    // Models sometimes call this with a placeholder rather than asking. Refuse
+    // instead of geocoding nonsense, and tell the model what to do about it.
+    if (location.length < 2 || /^(\?+|unknown|n\/?a|none|null|city)$/i.test(location)) {
+      return JSON.stringify({
+        error: "No location given. Ask the user which city, do not guess.",
+      });
+    }
+    return JSON.stringify(await getWeather(location));
   }
   return JSON.stringify({ error: `Unknown tool ${name}` });
 }

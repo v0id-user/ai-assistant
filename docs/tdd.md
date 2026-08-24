@@ -40,6 +40,7 @@ weather when you ask.
 |---|---|---|---|
 | STT | Whisper on Groq (`whisper-large-v3`) | Works in every browser; Web Speech does not | Browser Web Speech API, unusable in Brave and Firefox |
 | LLM | Groq | Fastest time to first token, which is what the deep dive is about | OpenAI, slower first token |
+| LLM model | `openai/gpt-oss-20b` | Measured against every chat model on the account | `gpt-oss-120b`, slower and leaked reasoning |
 | TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
 
@@ -68,6 +69,30 @@ Two consequences:
 are indistinguishable on latency, measured, so the lower word error rate
 (10.3% against 12%) decides it. Transcripts feed the memory tool, where a
 misheard name persists for 30 days.
+
+### Model comparison
+
+The LLM was originally picked on one smoke test, which was not good enough.
+Ten fixed prompts covering all four behaviours were then run against every
+chat capable model on the account, with identical settings.
+
+| Model | Turns | Latency median / p95 | Tool correctness | Reasoning leak | Format |
+|---|---|---|---|---|---|
+| `openai/gpt-oss-20b` | 10/10 | 528ms / 1336ms | 9/10 | 0/10 | 9/10 |
+| `openai/gpt-oss-120b` | 10/10 | 750ms / 2112ms | 8/10 | 1/10 | 9/10 |
+| `qwen/qwen3.6-27b` | 6/10 | 725ms / 1493ms | 6/6 | 0/6 | 6/6 |
+| `groq/compound`, `-mini` | 0/10 | n/a | n/a | n/a | n/a |
+
+`gpt-oss-20b` wins on latency, which is what the deep dive measures, and did
+not leak. `gpt-oss-120b` invented a city when none was given and wrote a
+spurious fact on a question. The compound models reject `reasoning_format`, so
+they could not be compared fairly. `qwen` was clean on everything it completed
+and used better fact subjects, but rate limited at 6 of 10 turns, so there is
+not enough evidence to prefer it.
+
+Both gpt-oss models still call `get_weather` with a placeholder location rather
+than asking, so the tool rejects a missing or placeholder location server side
+instead of geocoding it.
 
 ## 4. Memory
 
