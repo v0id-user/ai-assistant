@@ -74,6 +74,7 @@ export default function Home() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [facts, setFacts] = useState<string[]>([]);
   const [showFacts, setShowFacts] = useState(false);
+  const [speechError, setSpeechError] = useState("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -182,26 +183,43 @@ export default function Home() {
       historyRef.current = messages;
       setTurns((prev) => [...prev, { role: "assistant", text }]);
       setStatus("Speaking…");
+      setSpeechError("");
 
-      const ttsRes = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
+      // Speech is the part most likely to fail, and the reply is already on
+      // screen by now, so a TTS failure degrades to text instead of losing
+      // the turn.
+      let tTts = performance.now();
+      let tPlay = tTts;
+      let ttsTimings: Timings | undefined;
 
-      const ttsTimings: Timings | undefined = JSON.parse(
-        ttsRes.headers.get("X-Timings") ?? "null",
-      );
-      const blob = await ttsRes.blob();
-      const tTts = performance.now();
+      try {
+        const ttsRes = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
 
-      const url = URL.createObjectURL(blob);
-      const audio = audioRef.current!;
-      audio.src = url;
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
-      const tPlay = performance.now();
+        ttsTimings = JSON.parse(ttsRes.headers.get("X-Timings") ?? "null");
+        const blob = await ttsRes.blob();
+        tTts = performance.now();
+
+        const url = URL.createObjectURL(blob);
+        const audio = audioRef.current!;
+        audio.src = url;
+        audio.onended = () => URL.revokeObjectURL(url);
+        await audio.play();
+        tPlay = performance.now();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const rateLimited = /rate.?limit|429|too many/i.test(message);
+        setSpeechError(
+          rateLimited
+            ? "Voice is rate limited by the provider, showing text only."
+            : "Voice unavailable, showing text only.",
+        );
+        console.warn("[client] tts failed:", message);
+      }
 
       // Upload and response overhead: whatever the round trip cost beyond the
       // work the server actually reported doing.
@@ -366,6 +384,12 @@ export default function Home() {
       </button>
 
       <div className="min-h-6 text-sm text-muted">{status}</div>
+
+      {speechError && (
+        <p className="rounded border border-sand bg-shell p-2 text-sm text-ink">
+          {speechError}
+        </p>
+      )}
 
       <ol className="flex flex-col gap-3">
         {turns.map((turn, i) => (
