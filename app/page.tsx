@@ -75,6 +75,8 @@ export default function Home() {
   const [facts, setFacts] = useState<string[]>([]);
   const [showFacts, setShowFacts] = useState(false);
   const [speechError, setSpeechError] = useState("");
+  // TTS has a hard daily token cap, so allow testing behaviour without it.
+  const [voiceOn, setVoiceOn] = useState(true);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -193,6 +195,7 @@ export default function Home() {
       let ttsTimings: Timings | undefined;
 
       try {
+        if (!voiceOn) throw new Error("voice off");
         const ttsRes = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -212,13 +215,15 @@ export default function Home() {
         tPlay = performance.now();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        const rateLimited = /rate.?limit|429|too many/i.test(message);
-        setSpeechError(
-          rateLimited
-            ? "Voice is rate limited by the provider, showing text only."
-            : "Voice unavailable, showing text only.",
-        );
-        console.warn("[client] tts failed:", message);
+        if (message !== "voice off") {
+          const rateLimited = /rate.?limit|429|too many/i.test(message);
+          setSpeechError(
+            rateLimited
+              ? "Voice is rate limited by the provider, showing text only."
+              : "Voice unavailable, showing text only.",
+          );
+          console.warn("[client] tts failed:", message);
+        }
       }
 
       // Upload and response overhead: whatever the round trip cost beyond the
@@ -249,7 +254,7 @@ export default function Home() {
           .then((d) => d && setFacts(d.facts));
       }, 400);
     },
-    [loadSessions],
+    [loadSessions, voiceOn],
   );
 
   const start = async () => {
@@ -334,6 +339,13 @@ export default function Home() {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
+          <button
+            onClick={() => setVoiceOn((v) => !v)}
+            title="Skip text to speech, which has a daily quota"
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
+          >
+            {voiceOn ? "Voice on" : "Text only"}
+          </button>
           <button
             onClick={() => setShowFacts((v) => !v)}
             className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
