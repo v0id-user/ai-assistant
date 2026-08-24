@@ -193,6 +193,10 @@ async function respond(
       model: MODEL,
       messages,
       tools,
+      // Without this the model's analysis channel is concatenated into
+      // content, so scratchpad lines like "Need to wait for user." are spoken
+      // aloud. 'hidden' keeps reasoning out of the reply entirely.
+      reasoning_format: "hidden",
     });
     timer.mark(`llm_round_${round}`);
 
@@ -241,6 +245,7 @@ async function respond(
       model: MODEL,
       messages,
       tool_choice: "none",
+      reasoning_format: "hidden",
     });
     text = final.choices[0].message.content?.trim() ?? "";
     timer.mark("llm_final");
