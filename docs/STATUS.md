@@ -1,7 +1,7 @@
 # Status
 
 Live: https://take-home-sarj.vercel.app
-Last updated after the cookie-scoping change (`29d9a06`).
+Last updated 2026-08-24, after the model comparison and prompt-cache work.
 
 ## 1. Verified on the deployed URL
 
@@ -13,6 +13,8 @@ Actually run against production, not localhost and not assumed:
 | `POST /api/stt` | real webm/opus upload transcribed correctly, ~300-500ms |
 | `POST /api/chat` | `save_fact` fires, facts persist to Upstash |
 | memory across a New session | fact stated, New session, recalled correctly |
+| weather with no city | asks which city, fires no tool |
+| prompt cache | `cached: 512` on the third turn of a session |
 | `POST /api/chat` (fresh, no history) | recalls the stored location **and** calls `get_weather` |
 | `POST /api/tts` | 200, ~85KB wav, 24kHz mono, first byte ~185ms |
 | `GET /api/session` | current session with turns and facts |
@@ -51,15 +53,67 @@ from a terminal, since it needs a real microphone.
 "Streaming STT" was struck from section 2 deliberately. Groq transcription is
 batch only, confirmed at the type level. See the amendment in `tdd.md`.
 
+## 2b. Changed tonight
+
+**Model switched to `openai/gpt-oss-20b`** (`GROQ_MODEL`, one line in
+`app/api/chat/route.ts`). Chosen by measurement this time, not a smoke test.
+Ten fixed prompts against every chat model on the account:
+
+| Model | Turns | Latency median / p95 | Tool correctness | Leak | Format |
+|---|---|---|---|---|---|
+| `gpt-oss-20b` | 10/10 | 528ms / 1336ms | 9/10 | 0/10 | 9/10 |
+| `gpt-oss-120b` | 10/10 | 750ms / 2112ms | 8/10 | 1/10 | 9/10 |
+| `qwen3.6-27b` | 6/10 | 725ms / 1493ms | 6/6 | 0/6 | 6/6 |
+| `groq/compound`, `-mini` | 0/10 | rejects `reasoning_format` | | | |
+
+Full write-up in `tdd.md` section 3.
+
+**Reply generation is now schema-constrained.** The spoken reply comes from its
+own tools-off call with `response_format: json_schema` forcing a single `reply`
+field, so the model has nowhere to put turn-taking narration. Structured output
+cannot be combined with tool calling, which is why it is a separate call. Costs
+one extra LLM call per turn.
+
+**Other model settings:** `reasoning_format: "hidden"`, `temperature: 0.3`,
+`max_completion_tokens: 800`. The token budget has to cover hidden reasoning as
+well as the output; at 120 the JSON was cut off and failed schema validation.
+
+**Weather tool rejects placeholder locations** server side (`""`, `"?"`,
+`"unknown"`, `"N/A"`, ...) and tells the model to ask instead. Both gpt-oss
+models call it with a placeholder rather than asking, despite the prompt.
+
+**History is conversation only.** Tool calls, tool results and the model's
+`reasoning` are no longer replayed. Feeding them back made the model continue
+an old train of thought: it re-fired stale tools and ran several replies
+together.
+
+**Facts moved out of the system prompt** into their own message, so the static
+prefix stays byte-identical and Groq's prompt cache can hit it. Caching is
+automatic and free on gpt-oss models, ~2 hour TTL, 50% discount on cached
+tokens. Measured: misses on turns 1 and 2, `cached: 512` of ~1006 prompt
+tokens on turn 3. A cold session pays full price for its first couple of turns.
+
+**Traces are richer:** stage marks are named after what happened
+(`llm_asks_for_get_weather`, `run_get_weather`, `llm_writes_reply`) instead of
+round numbers; each turn records token usage including `cached`; the exact
+payload sent to the LLM is stored; the page groups by session and has a copy
+to markdown button.
+
 ## 3. Broken, half-finished, untested
 
 - **The mic path works**, but only a single confirmed run. Not yet exercised:
   back-to-back turns, long recordings, and recovery after a denied mic prompt.
 - **`llm_first_token` does not exist.** The chat route is non-streaming, so
-  `llm_round_0` is completion time, not first token. Matters for the deep dive.
-- **Empty-reply fallback is unexercised.** The `tool_choice: "none"` retry in
-  `app/api/chat/route.ts` was written for a real observed bug and has not fired
-  since.
+  `llm_answers` is completion time, not first token. Matters for the deep dive.
+- **Two LLM calls per turn.** The schema-constrained reply call adds roughly
+  300 to 500ms. Deliberate trade for determinism, but it is latency in the path
+  the deep dive measures.
+- **~1000 prompt tokens per call** regardless of what was said, so ~2000 per
+  turn, because the system prompt and tool definitions are resent every time.
+  The prompt cache halves the cost of this once warm.
+- **`gpt-oss-20b` is over-eager on tools.** Observed saying "I live in Jeddah"
+  and getting both a save_fact and an unprompted weather lookup. It also
+  offered to set a reminder it has no tool for.
 - **`MAX_TOOL_ROUNDS` exhaustion never hit.** Maximum observed is 2 rounds.
 - **Unbounded history.** The client replays the whole message log every turn
   with no trimming; a long session will eventually hit the context limit.
@@ -96,7 +150,8 @@ Clean tree, everything committed and pushed to `main`. Deployed build matches
 **Timing marks.** `lib/timing.ts` -> `createTimer(label)` with `mark()` and
 `done()`, returning `{ totalMs, stages }`. Current marks:
 
-    chat: memory_load -> llm_round_N -> tools_round_N -> [llm_final]
+    chat: memory_load -> llm_asks_for_<tool> -> run_<tool> -> llm_answers
+          -> llm_writes_reply
     stt:  transcribe
     tts:  tts_first_byte -> tts_complete
 
@@ -138,6 +193,10 @@ Two things that will bite:
 **The cache is scoped per session** (recorded in `tdd.md` section 6). Answers
 are conditioned on that session's facts, so a global cache could serve one
 visitor's personal details to another on a paraphrase match.
+
+**Cache warm-up affects baselines.** The first two turns of a session miss the
+prompt cache and the third hits, so early turns are not comparable to later
+ones. Watch the `cached` column when sampling.
 
 **Baseline.** Only single samples exist. Section 6 asks for median and p95 over
 10 to 20 runs. `/_debug/traces` already stores the last 50 turns per session
