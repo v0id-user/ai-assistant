@@ -126,7 +126,9 @@ export default function Home() {
     if (!confirm("Forget everything Sarjy has remembered about you?")) return;
     const res = await fetch("/api/facts", { method: "DELETE" });
     if (!res.ok) return;
-    setFacts([]);
+    // The cookie is gone, so a reload comes back with a fresh identity and an
+    // empty slate. Reloading is simpler than resetting each piece of state.
+    location.reload();
   }, []);
 
   const newSession = useCallback(async () => {
