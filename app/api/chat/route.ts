@@ -78,10 +78,11 @@ function systemPrompt(facts: string[]): string {
 async function runTool(
   name: string,
   args: Record<string, unknown>,
-  sessionId: string,
+  ownerId: string,
 ): Promise<string> {
   if (name === "save_fact") {
-    await saveFact(sessionId, String(args.fact));
+    // Facts belong to the person, not the conversation.
+    await saveFact(ownerId, String(args.fact));
     return JSON.stringify({ saved: true });
   }
   if (name === "get_weather") {
@@ -119,7 +120,7 @@ async function respond(
   history: unknown[],
   timer: ReturnType<typeof createTimer>,
 ) {
-  const facts = await getFacts(sessionId);
+  const facts = await getFacts(ownerId);
   timer.mark("memory_load");
 
   const messages: ChatCompletionMessageParam[] = [
@@ -153,7 +154,7 @@ async function respond(
         result = await runTool(
           call.function.name,
           JSON.parse(call.function.arguments || "{}"),
-          sessionId,
+          ownerId,
         );
       } catch (err) {
         result = JSON.stringify({

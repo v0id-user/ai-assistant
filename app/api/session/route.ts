@@ -7,10 +7,10 @@ import {
   startSession,
 } from "@/lib/sessions";
 
-async function payload(sessionId: string) {
+async function payload(ownerId: string, sessionId: string) {
   const [turns, facts] = await Promise.all([
     getTurns(sessionId),
-    getFacts(sessionId),
+    getFacts(ownerId),
   ]);
   return { sessionId, turns, facts };
 }
@@ -19,7 +19,8 @@ async function payload(sessionId: string) {
 export async function GET() {
   try {
     const ownerId = await requireOwnerId();
-    return Response.json(await payload(await getCurrentSessionId(ownerId)));
+    const sessionId = await getCurrentSessionId(ownerId);
+    return Response.json(await payload(ownerId, sessionId));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 502 });
@@ -36,10 +37,10 @@ export async function POST(request: Request) {
       if (!(await selectSession(ownerId, sessionId))) {
         return Response.json({ error: "Not found" }, { status: 404 });
       }
-      return Response.json(await payload(sessionId));
+      return Response.json(await payload(ownerId, sessionId));
     }
 
-    return Response.json(await payload(await startSession(ownerId)));
+    return Response.json(await payload(ownerId, await startSession(ownerId)));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return Response.json({ error: message }, { status: 502 });

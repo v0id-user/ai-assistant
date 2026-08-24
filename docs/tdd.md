@@ -72,10 +72,23 @@ misheard name persists for 30 days.
 ## 4. Memory
 
 Any fact the user states about themselves gets written through a memory tool
-the model can call. Facts are stored in Upstash keyed by session id. On each
-turn the stored facts are injected into the system prompt. Writes happen at the
-moment the model decides something is worth keeping, not at end of session, so
-nothing is lost if the tab closes.
+the model can call. On each turn the stored facts are injected into the system
+prompt. Writes happen at the moment the model decides something is worth
+keeping, not at end of session, so nothing is lost if the tab closes.
+
+There are two levels of identity, which did not exist when this section was
+first written:
+
+- **Facts are owner scoped**, `sarjy:facts:<ownerId>`, keyed to the httpOnly
+  cookie. They describe the person, so they outlive any single conversation and
+  survive starting a new one. This is what makes "what is my favourite colour"
+  work across sessions, which the brief requires.
+- **Turns are session scoped**, `sarjy:turns:<sessionId>`. One cookie owner has
+  many conversations; starting a new one clears the transcript, not the memory.
+
+Facts were originally keyed by session id, which meant the New session button
+silently wiped memory. Facts stranded under old session keys are left to expire
+with their 30 day TTL rather than migrated.
 
 ## 5. External API
 

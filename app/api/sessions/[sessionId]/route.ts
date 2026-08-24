@@ -15,7 +15,7 @@ export async function GET(
     }
     const [turns, facts] = await Promise.all([
       getTurns(sessionId),
-      getFacts(sessionId),
+      getFacts(ownerId),
     ]);
     return Response.json({ turns, facts });
   } catch (err) {
