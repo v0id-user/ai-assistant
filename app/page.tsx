@@ -183,7 +183,13 @@ export default function Home() {
         body: JSON.stringify({ transcript, history: historyRef.current }),
       });
       if (!chatRes.ok) throw await failure(chatRes, "Chat");
-      const { text, messages, timings: chatTimings } = await chatRes.json();
+      const {
+        text,
+        messages,
+        timings: chatTimings,
+        cached,
+        audio: cachedAudio,
+      } = await chatRes.json();
 
       historyRef.current = messages;
       setTurns((prev) => [...prev, { role: "assistant", text }]);
@@ -197,25 +203,39 @@ export default function Home() {
       let tPlay = tTts;
       let ttsTimings: Timings | undefined;
 
-      try {
-        if (!voiceOn) throw new Error("voice off");
-        const ttsRes = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
-
-        ttsTimings = JSON.parse(ttsRes.headers.get("X-Timings") ?? "null");
-        const blob = await ttsRes.blob();
-        tTts = performance.now();
-
+      const play = async (blob: Blob) => {
         const url = URL.createObjectURL(blob);
         const audio = audioRef.current!;
         audio.src = url;
         audio.onended = () => URL.revokeObjectURL(url);
         await audio.play();
-        tPlay = performance.now();
+      };
+
+      try {
+        if (!voiceOn) throw new Error("voice off");
+
+        if (cached && cachedAudio) {
+          // Cache hit with stored audio: play it, no TTS round trip.
+          const bytes = Uint8Array.from(atob(cachedAudio), (c) =>
+            c.charCodeAt(0),
+          );
+          tTts = performance.now();
+          await play(new Blob([bytes], { type: "audio/wav" }));
+          tPlay = performance.now();
+        } else {
+          const ttsRes = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          if (!ttsRes.ok) throw await failure(ttsRes, "Speech");
+
+          ttsTimings = JSON.parse(ttsRes.headers.get("X-Timings") ?? "null");
+          const blob = await ttsRes.blob();
+          tTts = performance.now();
+          await play(blob);
+          tPlay = performance.now();
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (message !== "voice off") {

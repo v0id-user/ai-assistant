@@ -9,6 +9,8 @@ import { getFacts, saveFact } from "@/lib/memory";
 import { getWeather } from "@/lib/weather";
 import { createTimer } from "@/lib/timing";
 import { saveTrace, type ToolCall } from "@/lib/traces";
+import { lookup, learn } from "@/lib/cache";
+import { getAudio } from "@/lib/audio";
 import { getCurrentSessionId, recordTurns } from "@/lib/sessions";
 import { requireOwnerId } from "@/lib/identity";
 
@@ -181,6 +183,36 @@ async function respond(
   history: unknown[],
   timer: ReturnType<typeof createTimer>,
 ) {
+  // Cache lookup first: this is the last point where the request can return
+  // without paying for the LLM. A hit skips the LLM and TTS entirely.
+  const hit = await lookup(transcript, ownerId);
+  timer.mark("cache_lookup");
+
+  if (hit) {
+    // Inline the stored audio so the client plays it with no TTS round trip.
+    const audio = await getAudio(hit.audioRef);
+    const timings = timer.done();
+    after(() =>
+      recordTurns(
+        ownerId,
+        sessionId,
+        [
+          { role: "user", text: transcript },
+          { role: "assistant", text: hit.text },
+        ],
+        Date.now(),
+      ).catch(() => {}),
+    );
+    return Response.json({
+      text: hit.text,
+      cached: true,
+      cacheKind: hit.kind,
+      audio, // base64 wav, or null if not stored yet
+      messages: [],
+      timings,
+    });
+  }
+
   const facts = await getFacts(ownerId);
   timer.mark("memory_load");
 
@@ -352,7 +384,12 @@ async function respond(
   after(async () => {
     const now = Date.now();
     try {
+      // Only cache tool-free turns. Tool answers (weather) go stale.
+      const cacheable = toolLog.length === 0 && text.trim().length > 0;
       await Promise.all([
+        cacheable
+          ? learn(transcript, text, ownerId)
+          : Promise.resolve(),
         saveTrace({
           at: new Date(now).toISOString(),
           sessionId,

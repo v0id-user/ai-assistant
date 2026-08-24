@@ -1,6 +1,9 @@
 import Groq from "groq-sdk";
 
+import { after } from "next/server";
+
 import { createTimer } from "@/lib/timing";
+import { putAudio } from "@/lib/audio";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -35,6 +38,10 @@ export async function POST(request: Request) {
   }
   timer.mark("tts_complete");
   const timings = timer.done();
+
+  // Store what we just synthesised so a future cache hit on this reply can
+  // replay it instead of calling TTS again. Off the response path.
+  after(() => putAudio(text, audio).catch(() => {}));
 
   return new Response(audio, {
     headers: {
