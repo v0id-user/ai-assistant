@@ -122,6 +122,13 @@ export default function Home() {
     [applySession],
   );
 
+  const forgetMe = useCallback(async () => {
+    if (!confirm("Forget everything Sarjy has remembered about you?")) return;
+    const res = await fetch("/api/facts", { method: "DELETE" });
+    if (!res.ok) return;
+    setFacts([]);
+  }, []);
+
   const newSession = useCallback(async () => {
     const res = await fetch("/api/session", { method: "POST" });
     if (!res.ok) return;
@@ -395,6 +402,12 @@ export default function Home() {
             Facts ({facts.length})
           </button>
           <button
+            onClick={() => void forgetMe()}
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
+          >
+            Forget me
+          </button>
+          <button
             onClick={() => void newSession()}
             className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
           >
@@ -470,7 +483,16 @@ export default function Home() {
 
         <footer className="mt-auto pt-8 text-xs text-muted">
           Demo project. Don&apos;t share anything sensitive. Conversations and
-          stored facts are kept for 30 days.
+          stored facts are kept for 30 days.{" "}
+          <a
+            href="https://github.com/v0id-user/ai-assistant"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-ink"
+          >
+            Learn more
+          </a>
+          .
         </footer>
       </main>
     </>
