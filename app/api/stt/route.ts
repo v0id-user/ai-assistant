@@ -9,6 +9,11 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // rate wins. Transcripts feed save_fact, where a misheard name sticks around.
 const MODEL = process.env.GROQ_STT_MODEL ?? "whisper-large-v3";
 
+// Whisper auto-detects language when this is unset, and it has misdetected
+// accented English as Arabic. Pinning it also improves accuracy and latency.
+// Set GROQ_STT_LANGUAGE to "" to go back to auto-detection.
+const LANGUAGE = process.env.GROQ_STT_LANGUAGE ?? "en";
+
 export async function POST(request: Request) {
   const timer = createTimer("stt");
 
@@ -26,6 +31,7 @@ export async function POST(request: Request) {
     const transcription = await groq.audio.transcriptions.create({
       file: audio,
       model: MODEL,
+      ...(LANGUAGE ? { language: LANGUAGE } : {}),
       response_format: "json",
     });
     timer.mark("transcribe");
