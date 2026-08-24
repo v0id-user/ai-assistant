@@ -43,9 +43,9 @@ Representative production timings for one turn:
 `memory_load` is much faster deployed than locally (~150-215ms against ~470ms);
 most of that hop was a localhost artifact.
 
-## 2. Unmet from Section 2
+## 2. Scope gaps
 
-**Nothing.** Every section 2 item is met: voice in and voice out, memory across
+**None.** Every planned capability is in place: voice in and voice out, memory across
 sessions, in-session history, speech to text on every desktop browser, weather,
 deployed and publicly reachable.
 
@@ -53,7 +53,7 @@ The mic path -- `MediaRecorder` -> upload -> `audio.play()` -- was confirmed
 working by the user on 2026-08-24. It is the one leg that cannot be verified
 from a terminal, since it needs a real microphone.
 
-"Streaming STT" was struck from section 2 deliberately. Groq transcription is
+Streaming STT was dropped deliberately. Groq transcription is
 batch only, confirmed at the type level. See the amendment in `tdd.md`.
 
 ## 2b. Changed tonight
@@ -136,7 +136,7 @@ different subject, and never twice with the same subject. Description only, no
 code or call flow change. Verified on the original failing sentence: both
 `name` and `occupation` are stored.
 
-## 2c. Deep dive: semantic cache (built)
+## 2c. Semantic cache (built)
 
 One Upstash Vector index, hosted `text-embedding-3-small` (no separate embedding
 provider). Lookup runs before `getFacts` in `respond()`; a hit returns stored
@@ -194,10 +194,10 @@ learned hit.
 - **The mic path works**, but only a single confirmed run. Not yet exercised:
   back-to-back turns, long recordings, and recovery after a denied mic prompt.
 - **`llm_first_token` does not exist.** The chat route is non-streaming, so
-  `llm_answers` is completion time, not first token. Matters for the deep dive.
+  `llm_answers` is completion time, not first token. Matters for the latency work.
 - **Two LLM calls per turn.** The schema-constrained reply call adds roughly
   300 to 500ms. Deliberate trade for determinism, but it is latency in the path
-  the deep dive measures.
+  this project measures.
 - **~1000 prompt tokens per call** regardless of what was said, so ~2000 per
   turn, because the system prompt and tool definitions are resent every time.
   The prompt cache halves the cost of this once warm.
@@ -241,7 +241,7 @@ what sidesteps the author check.
 Clean tree, everything committed and pushed to `main`. Deployed build matches
 `HEAD`.
 
-## Where section 6 plugs in
+## Where the caching layer plugs in
 
 **Timing marks.** `lib/timing.ts` -> `createTimer(label)` with `mark()` and
 `done()`, returning `{ totalMs, stages }`. Current marks:
@@ -286,7 +286,7 @@ Two things that will bite:
    list, and `@ai-sdk/groq` types `textEmbeddingModel()` as returning `never`.
    The embed step needs Upstash Vector's hosted embedding or another provider.
 
-**The cache is scoped per session** (recorded in `tdd.md` section 6). Answers
+**The cache is scoped per session** (recorded in `tdd.md`). Answers
 are conditioned on that session's facts, so a global cache could serve one
 visitor's personal details to another on a paraphrase match.
 
@@ -294,7 +294,7 @@ visitor's personal details to another on a paraphrase match.
 prompt cache and the third hits, so early turns are not comparable to later
 ones. Watch the `cached` column when sampling.
 
-**Baseline.** Only single samples exist. Section 6 asks for median and p95 over
+**Baseline.** Only single samples exist. The plan calls for median and p95 over
 10 to 20 runs. `/_debug/traces` already stores the last 50 turns per session
 with full stage timings, so it can serve as the baseline collector; it just
 needs the runs put through it.

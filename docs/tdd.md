@@ -19,12 +19,12 @@ weather when you ask.
 **Out (and why):**
 - No authentication or multi user support. Identity is an httpOnly cookie set
   server side, which scopes sessions, facts and traces to one browser. That is
-  not auth and does not survive clearing cookies; it exists because the demo is
-  a public URL and the original single-demo-user assumption did not hold.
+  not auth and does not survive clearing cookies; it exists because the app is
+  deployed at a public URL and the original single-user assumption did not hold.
 - No mobile specific UI. Desktop browser only, keeps the surface small.
-- No error recovery beyond basic failure states. Out of scope for a demo.
+- No error recovery beyond basic failure states. Out of scope.
 - No self hosted vector store. Using Upstash so the storage question does not
-  eat the time budget.
+  become the whole project.
 - No real observability stack. Timing logs are enough to make latency
   measurable.
 
@@ -39,7 +39,7 @@ weather when you ask.
 | Decision | Choice | Why | Alternative rejected |
 |---|---|---|---|
 | STT | Whisper on Groq (`whisper-large-v3`) | Works in every browser; Web Speech does not | Browser Web Speech API, unusable in Brave and Firefox |
-| LLM | Groq | Fastest time to first token, which is what the deep dive is about | OpenAI, slower first token |
+| LLM | Groq | Fastest time to first token, which is what this project optimises for | OpenAI, slower first token |
 | LLM model | `openai/gpt-oss-20b` | Measured against every chat model on the account | `gpt-oss-120b`, slower and leaked reasoning |
 | TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
@@ -56,7 +56,7 @@ listed as "browser STT support varies across browsers".
 
 Two consequences:
 
-- **"Streaming STT" is dropped from section 2.** Groq transcription is batch
+- **Streaming STT is dropped from scope.** Groq transcription is batch
   only. This was verified at the type level: `@ai-sdk/groq` exposes
   `TranscriptionModelV4`, and the AI SDK's `streamTranscribe` has no Groq
   implementation. No layer recovers it, so there is no live partial transcript.
@@ -83,7 +83,7 @@ chat capable model on the account, with identical settings.
 | `qwen/qwen3.6-27b` | 6/10 | 725ms / 1493ms | 6/6 | 0/6 | 6/6 |
 | `groq/compound`, `-mini` | 0/10 | n/a | n/a | n/a | n/a |
 
-`gpt-oss-20b` wins on latency, which is what the deep dive measures, and did
+`gpt-oss-20b` wins on latency, which is what this project measures, and did
 not leak. `gpt-oss-120b` invented a city when none was given and wrote a
 spurious fact on a question. The compound models reject `reasoning_format`, so
 they could not be compared fairly. `qwen` was clean on everything it completed
@@ -107,7 +107,7 @@ first written:
 - **Facts are owner scoped**, `sarjy:facts:<ownerId>`, keyed to the httpOnly
   cookie. They describe the person, so they outlive any single conversation and
   survive starting a new one. This is what makes "what is my favourite colour"
-  work across sessions, which the brief requires.
+  work across sessions, which is the point of the project.
 - **Turns are session scoped**, `sarjy:turns:<sessionId>`. One cookie owner has
   many conversations; starting a new one clears the transcript, not the memory.
 
@@ -120,11 +120,11 @@ with their 30 day TTL rather than migrated.
 Weather (Open-Meteo). Weather is the single most common thing people ask a
 voice assistant, so it makes Sarjy useful rather than a demo that only talks
 about itself. It needs no API key, which keeps setup friction near zero. Most
-importantly for the deep dive, it puts a real network round trip inside the
+importantly for the latency work, it puts a real network round trip inside the
 response path, which makes it a live test case for latency rather than a
 synthetic one.
 
-## 6. Deep dive: semantic caching for lower time to first audio
+## 6. Semantic caching for lower time to first audio
 
 **Goal:** cut time to first audio by serving previously answered questions from
 a cache, matched by meaning rather than exact string.
