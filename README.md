@@ -3,6 +3,8 @@
 A browser voice assistant. You talk to it, it answers out loud, it remembers
 what you told it in earlier sessions, and it can pull live weather.
 
+**Live: [sarjy-voice.vercel.app](https://sarjy-voice.vercel.app)**
+
 It also has a semantic cache: repeat questions are matched by meaning rather
 than exact string, and a hit skips both the LLM and text to speech. On a small
 sample from the deployed app, a hit could answer in roughly 300ms where a miss
@@ -36,6 +38,10 @@ Design notes and measurements are in [`docs/tdd.md`](docs/tdd.md).
 | `lib/prompt.ts` | System prompt and message assembly |
 | `lib/tools.ts` | Tool definitions and dispatch |
 | `lib/identity.ts` | Cookie-based owner id |
+| `lib/sessions.ts` | Conversations and the session index |
+| `lib/traces.ts` | Per-turn trace records |
+| `lib/audio.ts` | Stored TTS audio for cache hits |
+| `lib/redis.ts` | Shared Upstash Redis client |
 | `lib/weather.ts` | Open-Meteo fetch |
 | `lib/timing.ts` | Stage-boundary marks |
 
