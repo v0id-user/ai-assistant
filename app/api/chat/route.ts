@@ -87,6 +87,10 @@ function systemPrompt(facts: string[]): string {
     "lists, no emoji. When the user states something durable about " +
     "themselves, call save_fact. When asked about weather, call get_weather; " +
     "if no location was given, ask which city rather than guessing. " +
+    "Only call a tool when the user's most recent message actually needs it. " +
+    "Earlier turns in this conversation are already answered: never repeat a " +
+    "tool call just because it appears above. If the latest message can be " +
+    "answered directly, answer it and call nothing. " +
     "After using tools, always reply to the user in words. " +
     "Always reply in the same language the user spoke in.";
 
@@ -144,9 +148,18 @@ async function respond(
   const facts = await getFacts(ownerId);
   timer.mark("memory_load");
 
+  // `reasoning` is the model's private scratchpad for one turn. Replaying it
+  // makes the model continue its old train of thought, which is how a stale
+  // tool call leaks into an unrelated question.
+  const priorTurns = (history as ChatCompletionMessageParam[]).map((m) => {
+    const rest: Record<string, unknown> = { ...m };
+    delete rest.reasoning;
+    return rest as unknown as ChatCompletionMessageParam;
+  });
+
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt(facts) },
-    ...(history as ChatCompletionMessageParam[]),
+    ...priorTurns,
     { role: "user", content: transcript },
   ];
 
