@@ -400,6 +400,12 @@ export default function Home() {
           >
             New session
           </button>
+          <a
+            href="/_debug/traces"
+            className="rounded border border-sand px-3 py-1.5 text-sm hover:bg-shell"
+          >
+            Traces
+          </a>
         </div>
       </header>
 
