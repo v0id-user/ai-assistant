@@ -467,6 +467,11 @@ export default function Home() {
       </ol>
 
         <audio ref={audioRef} hidden />
+
+        <footer className="mt-auto pt-8 text-xs text-muted">
+          Demo project. Don&apos;t share anything sensitive. Conversations and
+          stored facts are kept for 30 days.
+        </footer>
       </main>
     </>
   );
