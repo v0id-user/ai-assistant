@@ -236,7 +236,10 @@ async function respond(
       // sentence, and rambling is what the meta-commentary rides in on.
       reasoning_format: "hidden",
       temperature: 0.3,
-      max_completion_tokens: 800,
+      // This call only has to decide whether a tool is needed. Any prose it
+      // writes is discarded by the schema call below, so cap it short rather
+      // than generate an answer twice.
+      max_completion_tokens: 50,
     });
     account(completion.usage);
 
@@ -251,12 +254,16 @@ async function respond(
         : "llm_answers",
     );
 
-    messages.push(message as ChatCompletionMessageParam);
-
     if (toolCalls.length === 0) {
+      // Keep the draft as a fallback but do not put it in the context: it is
+      // unconstrained prose, and the schema call should write fresh rather
+      // than paraphrase it.
       text = message.content ?? "";
       break;
     }
+
+    // Required before the matching role:"tool" results.
+    messages.push(message as ChatCompletionMessageParam);
 
     for (const call of toolCalls) {
       let result: string;
