@@ -80,6 +80,14 @@ const tools: ChatCompletionTool[] = [
   },
 ];
 
+// After a tool call the model can return two output segments that the API
+// joins with no separator, giving "Got it.Nice, Jeddah is beautiful." Prompt
+// wording does not reliably prevent it, so repair the seam: a sentence end
+// immediately followed by a capital is always a missing space.
+function repairRunOn(text: string): string {
+  return text.replace(/([.!?])([A-Z\u0600-\u06FF])/g, "$1 $2");
+}
+
 function systemPrompt(facts: string[]): string {
   const base =
     "You are Sarjy, a voice assistant. Your replies are read aloud, so keep " +
@@ -237,6 +245,8 @@ async function respond(
     text = final.choices[0].message.content?.trim() ?? "";
     timer.mark("llm_final");
   }
+
+  text = repairRunOn(text.trim());
 
   const timings = timer.done();
 
