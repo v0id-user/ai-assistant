@@ -31,8 +31,10 @@ const tools: ChatCompletionTool[] = [
         "in their own words. Never save an inference, a guess, a value that " +
         "came back from another tool, anything you said yourself in an " +
         "earlier reply, or anything the user merely asked about. If the user " +
-        "did not state it about themselves just now, do not call this. Call " +
-        "once per distinct subject.",
+        "did not state it about themselves just now, do not call this. " +
+        "If one message contains several facts, call this once for each, " +
+        "with a different subject each time. Never call it twice with the " +
+        "same subject.",
       parameters: {
         type: "object",
         properties: {
