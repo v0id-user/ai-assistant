@@ -88,7 +88,7 @@ function repairRunOn(text: string): string {
   return text.replace(/([.!?])([A-Z\u0600-\u06FF])/g, "$1 $2");
 }
 
-function systemPrompt(facts: string[]): string {
+function systemPrompt(): string {
   const base =
     "You are Sarjy, a voice assistant. Your replies are read aloud, so keep " +
     "them short and conversational: exactly one short sentence, no markdown, " +
@@ -107,10 +107,23 @@ function systemPrompt(facts: string[]): string {
     "After using tools, always reply to the user in words. " +
     "Always reply in the same language the user spoke in.";
 
-  if (facts.length === 0) return base;
-  return `${base}\n\nWhat you already know about this user:\n${facts
-    .map((f) => `- ${f}`)
-    .join("\n")}`;
+  return base;
+}
+
+// Facts live in their own message rather than in the system prompt. Groq
+// caches prompt prefixes on exact match, so anything that changes per user or
+// per turn has to sit after the static part: system prompt and tool
+// definitions stay byte-identical across requests and keep hitting the cache.
+function factsMessage(facts: string[]): ChatCompletionMessageParam[] {
+  if (facts.length === 0) return [];
+  return [
+    {
+      role: "system",
+      content: `What you already know about this user:\n${facts
+        .map((f) => `- ${f}`)
+        .join("\n")}`,
+    },
+  ];
 }
 
 async function runTool(
@@ -188,7 +201,8 @@ async function respond(
     }));
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt(facts) },
+    { role: "system", content: systemPrompt() },
+    ...factsMessage(facts),
     ...priorTurns,
     { role: "user", content: transcript },
   ];
