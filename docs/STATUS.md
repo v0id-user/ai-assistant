@@ -1,6 +1,6 @@
 # Status
 
-Live: https://ai-assistant.vercel.app
+Live: https://sarjy-voice.vercel.app
 Last updated 2026-08-24, after the model comparison and prompt-cache work.
 
 ## 1. Verified on the deployed URL
