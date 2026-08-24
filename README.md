@@ -98,6 +98,7 @@ model. There is a button to copy the whole thing as markdown.
 ## Deploying to Vercel
 
 Push the repo, import it in Vercel, and set `GROQ_API_KEY`,
-`UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN` as environment
-variables. No other configuration is needed, both routes are standard Node
+`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`,
+`UPSTASH_VECTOR_REST_URL`, and `UPSTASH_VECTOR_REST_TOKEN` as environment
+variables. No other configuration is needed, the API routes are standard Node
 route handlers.
