@@ -209,6 +209,19 @@ async function respond(
 
   let text = "";
   const toolLog: ToolCall[] = [];
+  const tokens = { prompt: 0, completion: 0, cached: 0 };
+
+  const account = (usage: unknown) => {
+    const u = usage as {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    } | null;
+    if (!u) return;
+    tokens.prompt += u.prompt_tokens ?? 0;
+    tokens.completion += u.completion_tokens ?? 0;
+    tokens.cached += u.prompt_tokens_details?.cached_tokens ?? 0;
+  };
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const completion = await groq.chat.completions.create({
@@ -223,12 +236,21 @@ async function respond(
       temperature: 0.3,
       max_completion_tokens: 800,
     });
-    timer.mark(`llm_round_${round}`);
+    account(completion.usage);
 
     const message = completion.choices[0].message;
+    const toolCalls = message.tool_calls ?? [];
+
+    // Name the mark after what the model actually did, so a trace reads as a
+    // sequence of events rather than anonymous round numbers.
+    timer.mark(
+      toolCalls.length
+        ? `llm_asks_for_${toolCalls.map((c) => c.function.name).join("+")}`
+        : "llm_answers",
+    );
+
     messages.push(message as ChatCompletionMessageParam);
 
-    const toolCalls = message.tool_calls ?? [];
     if (toolCalls.length === 0) {
       text = message.content ?? "";
       break;
@@ -259,7 +281,7 @@ async function respond(
         content: result,
       });
     }
-    timer.mark(`tools_round_${round}`);
+    timer.mark(`run_${toolCalls.map((c) => c.function.name).join("+")}`);
   }
 
   // The spoken reply always comes from its own call with tools switched off
@@ -299,7 +321,8 @@ async function respond(
       },
     },
   });
-  timer.mark("llm_reply");
+  account(spoken.usage);
+  timer.mark("llm_writes_reply");
 
   try {
     text = JSON.parse(spoken.choices[0].message.content ?? "{}").reply ?? text;
@@ -323,6 +346,7 @@ async function respond(
           transcript,
           response: text,
           tools: toolLog,
+          tokens,
           request: messages
             .filter((m) => typeof m.content === "string")
             .map((m) => ({

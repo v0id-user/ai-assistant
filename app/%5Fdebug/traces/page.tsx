@@ -5,26 +5,11 @@ import { getTracesForOwner, type Trace } from "@/lib/traces";
 // Reads Redis on every request; nothing here should be prerendered.
 export const dynamic = "force-dynamic";
 
-const STAGE_ORDER = [
-  "memory_load",
-  "llm_round_0",
-  "tools_round_0",
-  "llm_round_1",
-  "tools_round_1",
-  "llm_final",
-];
-
 function stageCells(trace: Trace) {
-  const byName = new Map(trace.timings.stages.map((s) => [s.name, s.deltaMs]));
-  // Show the known stages in pipeline order, then anything unexpected.
-  const extra = trace.timings.stages
-    .map((s) => s.name)
-    .filter((n) => !STAGE_ORDER.includes(n));
-  return [...STAGE_ORDER, ...extra]
-    .filter((name) => byName.has(name))
-    .map((name) => `${name} ${byName.get(name)}ms`);
+  // Stages are recorded in the order they happened and now carry descriptive
+  // names, so no reordering is needed.
+  return trace.timings.stages.map((s) => `${s.name} ${s.deltaMs}ms`);
 }
-
 
 function toolCells(trace: Trace) {
   return (trace.tools ?? []).map(
@@ -48,8 +33,8 @@ function toMarkdown(groups: [string, Trace[]][]) {
     .map(([sessionId, rows]) => {
       const header =
         `## Session ${sessionId}\n\n` +
-        `| When | Said | Replied | Total | Tools | Stages |\n` +
-        `| --- | --- | --- | --- | --- | --- |`;
+        `| When | Said | Replied | Total | Tokens | Tools | Stages |\n` +
+        `| --- | --- | --- | --- | --- | --- | --- |`;
       const body = rows
         .map((t) =>
           [
@@ -57,6 +42,9 @@ function toMarkdown(groups: [string, Trace[]][]) {
             t.transcript.replace(/\|/g, "\\|"),
             t.response.replace(/\|/g, "\\|"),
             `${t.timings.totalMs}ms`,
+            t.tokens
+              ? `in ${t.tokens.prompt} / out ${t.tokens.completion} / cached ${t.tokens.cached}`
+              : "-",
             toolCells(t).join("; ") || "-",
             stageCells(t).join("; "),
           ].join(" | "),
@@ -131,6 +119,7 @@ export default async function Traces() {
                   <th className="py-2 pr-4 font-medium">Said</th>
                   <th className="py-2 pr-4 font-medium">Replied</th>
                   <th className="py-2 pr-4 font-medium">Total</th>
+                  <th className="py-2 pr-4 font-medium">Tokens</th>
                   <th className="py-2 pr-4 font-medium">Tools</th>
                   <th className="py-2 font-medium">Stages</th>
                 </tr>
@@ -146,6 +135,23 @@ export default async function Traces() {
                     <td className="max-w-xs py-2 pr-4">{trace.response}</td>
                     <td className="py-2 pr-4 whitespace-nowrap font-medium">
                       {trace.timings.totalMs}ms
+                    </td>
+                    <td className="py-2 pr-4 font-mono text-xs whitespace-nowrap">
+                      {trace.tokens ? (
+                        <>
+                          <div>in {trace.tokens.prompt}</div>
+                          <div>out {trace.tokens.completion}</div>
+                          <div
+                            className={
+                              trace.tokens.cached > 0 ? "" : "text-muted"
+                            }
+                          >
+                            cached {trace.tokens.cached}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                     <td className="py-2 pr-4">
                       {trace.tools?.length ? (
