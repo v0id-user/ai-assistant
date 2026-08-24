@@ -40,41 +40,37 @@ weather when you ask.
 |---|---|---|---|
 | STT | Whisper on Groq (`whisper-large-v3`) | Works in every browser; Web Speech does not | Browser Web Speech API, unusable in Brave and Firefox |
 | LLM | Groq | Fastest time to first token, which is what this project optimises for | OpenAI, slower first token |
-| LLM model | `openai/gpt-oss-20b` | Measured against every chat model on the account | `gpt-oss-120b`, slower and leaked reasoning |
+| LLM model | `openai/gpt-oss-20b` | Measured against every chat model Groq offers | `gpt-oss-120b`, slower and leaked reasoning |
 | TTS | Provider API (Groq PlayAI) | Returns real audio files, so responses can be cached and measured | Browser speechSynthesis, not measurable and not cacheable |
 | Storage and cache | Upstash | Managed, no infra work, vector and KV in one place | Self hosted Redis or pgvector, too much setup for the time budget |
 
 ### Amendment: STT moved off the Web Speech API
 
-Originally this was the browser Web Speech API, chosen for zero setup. First
-real test failed: Brave ships `webkitSpeechRecognition` but disables the
-backend, so it throws `network` at runtime. Google licenses its speech service
-to Chrome only, and Brave, Firefox and Chromium builds get nothing. The
-constructor still exists, so there is no way to feature detect it, and the
-unsupported-browser banner cannot fire. This is the risk section 7 already
-listed as "browser STT support varies across browsers".
+Originally this was the browser Web Speech API, chosen for zero setup. It is
+not supported across browsers: Brave ships `webkitSpeechRecognition` but
+disables the backend, so it throws `network` at runtime. The constructor still
+exists, so it cannot be feature detected and the unsupported-browser banner
+never fires. Section 7 already listed this risk.
 
-Two consequences:
+Trade-offs:
 
-- **Streaming STT is dropped from scope.** Groq transcription is batch
-  only. This was verified at the type level: `@ai-sdk/groq` exposes
-  `TranscriptionModelV4`, and the AI SDK's `streamTranscribe` has no Groq
-  implementation. No layer recovers it, so there is no live partial transcript.
+- **Streaming STT is dropped from scope.** Groq transcription is batch only,
+  verified at the type level: `@ai-sdk/groq` exposes `TranscriptionModelV4` and
+  the AI SDK's `streamTranscribe` has no Groq implementation. There is no live
+  partial transcript.
 - **Roughly 400ms of serial latency is added** to every turn. Web Speech
-  transcribed while the user spoke and cost nothing; Whisper runs after they
-  stop. The trade was made knowingly: a demo that only works in one browser is
-  worth less than 400ms.
+  transcribed while the user spoke; Whisper runs after they stop. Worth it for
+  an app that works in more than one browser.
 
-`whisper-large-v3` over `-turbo` because at 2 to 6 second utterances the two
-are indistinguishable on latency, measured, so the lower word error rate
-(10.3% against 12%) decides it. Transcripts feed the memory tool, where a
-misheard name persists for 30 days.
+`whisper-large-v3` over `-turbo`: at 2 to 6 second utterances the two were
+indistinguishable on latency when measured, so the lower word error rate that
+Groq publishes (10.3% against 12%) decides it.
 
 ### Model comparison
 
 The LLM was originally picked on one smoke test, which was not good enough.
 Ten fixed prompts covering all four behaviours were then run against every
-chat capable model on the account, with identical settings.
+chat capable model Groq offers, with identical settings.
 
 | Model | Turns | Latency median / p95 | Tool correctness | Reasoning leak | Format |
 |---|---|---|---|---|---|
@@ -83,23 +79,23 @@ chat capable model on the account, with identical settings.
 | `qwen/qwen3.6-27b` | 6/10 | 725ms / 1493ms | 6/6 | 0/6 | 6/6 |
 | `groq/compound`, `-mini` | 0/10 | n/a | n/a | n/a | n/a |
 
-`gpt-oss-20b` wins on latency, which is what this project measures, and did
-not leak. `gpt-oss-120b` invented a city when none was given and wrote a
-spurious fact on a question. The compound models reject `reasoning_format`, so
-they could not be compared fairly. `qwen` was clean on everything it completed
-and used better fact subjects, but rate limited at 6 of 10 turns, so there is
-not enough evidence to prefer it.
+`gpt-oss-20b` was chosen. What the table does not show: `gpt-oss-120b`'s one
+tool error was inventing a city when none was given, `qwen` rate limited before
+it could be judged, and the compound models reject `reasoning_format` so they
+could not be compared on equal settings.
 
-Both gpt-oss models still call `get_weather` with a placeholder location rather
-than asking, so the tool rejects a missing or placeholder location server side
-instead of geocoding it.
+Both gpt-oss models call `get_weather` with a placeholder location rather than
+asking, so the tool rejects a missing or placeholder location server side.
 
 ## 4. Memory
 
 Any fact the user states about themselves gets written through a memory tool
-the model can call. On each turn the stored facts are injected into the system
-prompt. Writes happen at the moment the model decides something is worth
-keeping, not at end of session, so nothing is lost if the tab closes.
+the model can call. On each turn the stored facts are sent as their own system
+message, placed after the static system prompt and tool definitions rather than
+inside them, so the static prefix stays byte-identical from request to request
+and keeps hitting Groq's prompt cache. Writes happen at the moment the model
+decides something is worth keeping, not at end of session, so nothing is lost
+if the tab closes.
 
 There are two levels of identity, which did not exist when this section was
 first written:
@@ -168,15 +164,20 @@ block. Tool turns (weather) are not cached.
 | Cache hit | 283ms | 3350ms |
 | Cache miss | 1489ms | 6208ms |
 
-A hit also skips TTS (~600ms), so the end-to-end time-to-first-audio saving is
-larger than the ~1200ms chat delta: roughly 1200ms of LLM plus 600ms of TTS.
-The p95 figures are dominated by Vercel cold starts and network variance, which
-is why median is the honest central number and why hit and miss are reported
-separately, not blended.
+A hit also skips TTS (~600ms), so the saving is roughly 1200ms of LLM plus
+600ms of TTS.
+
+The p95 figures are far above the medians. That spread was not isolated to a
+cause, so treat the medians as the reliable numbers.
 
 The new `cache_lookup` mark (hosted embedding + vector query) costs ~300ms and
 is paid on every turn including misses, so a miss is slightly slower than the
 pre-cache baseline. That is the price of the hit path.
+
+Next step: run the lookup and the normal path in parallel and race them. A miss
+would cost nothing, because the normal path was already running, and a hit
+returns the whole answer immediately. That removes the lookup cost from the
+miss path entirely. Not built.
 
 **Threshold experiment (20 hand-written pairs).** The finding was that the
 distributions overlap and there is no clean separating threshold:
@@ -187,7 +188,7 @@ distributions overlap and there is no clean separating threshold:
       0.90    |  0/10    |  0/10
 
 The worst case: "where do you live" (about the assistant) scored 0.871 against a
-stored "Where do I live?" (about the user) — higher than every genuine
+stored "Where do I live?" (about the user), higher than every genuine
 paraphrase. One pronoun flips the meaning but barely moves the embedding.
 
 Chosen thresholds, from the data:
@@ -213,12 +214,27 @@ Left as a next step rather than shipped as dead code.
 
 ## 7. Risks and open questions
 
-- No auth means the deployed demo is open to spam and abuse. Cookie scoping
-  stops one visitor reading another's transcripts and remembered facts, but a
-  stolen or copied cookie is still full access to that browser's data.
-- A similarity threshold that is too loose could serve a confidently wrong
-  cached answer.
-- Free tier rate limits on the LLM and TTS providers.
-- Browser STT support varies across browsers.
-- Cached weather answers go stale quickly, so weather may need to bypass the
-  cache entirely.
+- No auth. Cookie scoping stops one visitor reading another's transcripts and
+  remembered facts, but a copied cookie is full access to that browser's data,
+  and the URL is public so the LLM and TTS quotas are open to abuse.
+- The similarity threshold problem is now measured, not hypothetical. Genuine
+  paraphrases and near misses overlap, and a pronoun flip ("where do you live"
+  against a stored "where do I live") scores higher than real paraphrases. It
+  happened in live use. Learned entries are held at 0.90 to contain it, which
+  costs most of the paraphrase hit rate. Separating intent needs something
+  other than cosine distance.
+- Learned entries are per owner, so a fresh session has a zero hit rate until
+  the cache warms. Only the canned entries hit immediately.
+- Free tier limits are a real constraint, not a theoretical one. The TTS daily
+  cap (3600 tokens) was exhausted during testing, which is why canned audio is
+  incomplete and the filler audio was never built. LLM calls rate limited
+  during the model comparison and cut one model's run short.
+- Cached audio is stored as base64 in Redis, which grows with every distinct
+  reply and shares the same store as sessions and facts. No eviction beyond the
+  TTL.
+- `ownerId` is interpolated into the vector query filter without escaping. It is
+  a server-minted UUID from an httpOnly cookie today, so it is not reachable by
+  a user, but the isolation depends on that id format rather than on escaping.
+- Two LLM calls per turn. The spoken reply is generated separately under a JSON
+  schema, which is what stops the model narrating its own turn-taking, but it
+  adds a round trip on the miss path.
